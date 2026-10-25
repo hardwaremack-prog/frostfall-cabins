@@ -44,10 +44,10 @@
     <input id="addr" placeholder="Host address, e.g. 192.168.1.42" autocomplete="off">
     <button id="join">Join</button>
   </div>
-  <p style="font-size:13px">If the server says it moved to another port (like 8766), type <code>address:8766</code> under Join.<br>No icon? In a Terminal: <code>bash ~/Desktop/"My Apps"/games/frostfall-cabins/start-pi.sh</code></p>
+  <p style="font-size:13px">If the server says it moved to another port (like 8791), type <code>address:8791</code> under Join.<br>No icon? In a Terminal: <code>bash ~/Desktop/"My Apps"/games/frostfall-cabins/start-pi.sh</code></p>
 </div>
 <script>
-const PORT = 8765;
+const PORT = 8790;
 const $ = (id) => document.getElementById(id);
 function store(k, v) { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } }
 let found = PORT;

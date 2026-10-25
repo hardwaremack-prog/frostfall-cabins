@@ -550,10 +550,14 @@ const me = { x: 0, y: 0, z: 30, vx: 0, vz: 0, vy: 0, yaw: 0, pitch: 0, onGround:
 let joined = false;
 
 function connect(name, color) {
+  if (location.protocol === 'file:') {
+    $('joinErr').innerHTML = "This page was opened as a file. Start the server, then open the address it shows (like <b>http://localhost:8790</b>).";
+    $('go').disabled = false; return;
+  }
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${proto}://${location.host}/ws`);
   ws.onopen = () => ws.send(JSON.stringify({ t: 'join', name, color }));
-  ws.onerror = () => { $('joinErr').textContent = "Can't reach the server. Is server.py running on that computer?"; $('go').disabled = false; };
+  ws.onerror = () => { $('joinErr').innerHTML = `Can't reach the game server at <b>${location.host}</b>. Check the server window is still open and use the exact address it shows — it may have moved to another port.`; $('go').disabled = false; };
   ws.onclose = () => { if (joined) toast('Lost connection to the server. Refresh to rejoin.', 60000); };
   ws.onmessage = (ev) => {
     const m = JSON.parse(ev.data);

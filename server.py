@@ -4,11 +4,11 @@ Frostfall Cabins - LAN multiplayer server
 -----------------------------------------
 Zero dependencies: just Python 3.8+ (already on every Raspberry Pi).
 
-    python3 server.py                 # default 12-minute night, port 8765
+    python3 server.py                 # default 12-minute night, port 8790
     python3 server.py --minutes 20    # longer night
     python3 server.py --port 9000
 
-Everyone on the same Wi-Fi opens  http://<this-computer's-IP>:8765  in a browser.
+Everyone on the same Wi-Fi opens  http://<this-computer's-IP>:8790  in a browser.
 """
 import argparse
 import asyncio
@@ -598,7 +598,7 @@ def is_frostfall(port):
 async def main():
     global GAME
     ap = argparse.ArgumentParser(description="Frostfall Cabins LAN server")
-    ap.add_argument("--port", type=int, default=8765)
+    ap.add_argument("--port", type=int, default=8790)
     ap.add_argument("--minutes", type=float, default=12, help="real minutes per night (default 12)")
     args = ap.parse_args()
     GAME = Game(max(2.0, args.minutes) * 60)
