@@ -41,7 +41,8 @@ CABIN_W, CABIN_D = 10.0, 8.0          # interior footprint (local x, local z)
 STOVE = (-3.2, -2.7)
 WOODBOX = (-4.0, 0.6)
 PANTRY = (3.9, -2.9)
-RADIO = (4.75, -0.9)                  # solar radio on the right-hand wall
+RADIO = (4.75, -0.9)
+DOOR = (0.0, 4.2)                     # middle of the doorway                  # solar radio on the right-hand wall
 CANDLES = [(1.5, 0.55), (2.5, 0.55), (4.62, 1.6)]
 WOODBOX_MAX = 12
 CARRY_MAX = 4
@@ -159,7 +160,7 @@ class Game:
                 "i": i, "name": name, "x": x, "z": z, "region": region,
                 "rot": cabin_rot(x, z),
                 "fuel": 0.0, "wood": 2, "candles": [0.0, 0.0, 0.0],
-                "cans": 3, "pot": -1.0, "potKind": "",
+                "cans": 3, "pot": -1.0, "potKind": "", "door": True,   # doors start open
             })
         rng = random.Random(self.seed + self.round_no)
         self.rng = rng
@@ -466,6 +467,9 @@ class Game:
             cab = self.cabins[int(m.get("cabin"))]
         except (TypeError, ValueError, IndexError):
             return
+        if a == "door" and self.near(p, cab, DOOR):
+            cab["door"] = not cab["door"]
+            return
         if a == "woodbox" and self.near(p, cab, WOODBOX):
             if p["carry"] > 0:
                 n = min(p["carry"], WOODBOX_MAX - cab["wood"])
@@ -645,13 +649,14 @@ class Game:
                 d = 0.25                              # the shelter is snug
             elif ci >= 0:
                 cab = self.cabins[ci]
+                shut = not cab["door"]                 # a closed door keeps the heat in
                 if cab["fuel"] > 0:
                     lit = sum(1 for c in cab["candles"] if c > 0)
-                    d = 0.55 + 0.12 * lit
+                    d = 0.55 + 0.12 * lit + (0.2 if shut else -0.1 * gale)
                     if self.near(p, cab, STOVE):
                         d += 0.4
                 else:
-                    d = -(0.05 + 0.3 * gale)
+                    d = -(0.05 + 0.3 * gale) * (0.4 if shut else 1.0)
             else:
                 d = -(0.09 + 0.07 * late + 0.75 * gale)
             p["hunger"] = max(0.0, p["hunger"] - gm * 0.14)
@@ -844,7 +849,8 @@ class Game:
             "players": players,
             "cabins": [{"fuel": round(c["fuel"], 1), "wood": c["wood"],
                         "candles": [1 if v > 0 else 0 for v in c["candles"]],
-                        "cans": c["cans"], "pot": round(c["pot"], 1), "pk": c["potKind"]}
+                        "cans": c["cans"], "pot": round(c["pot"], 1), "pk": c["potKind"],
+                        "door": 1 if c["door"] else 0}
                        for c in self.cabins],
             "logs": [[l["id"], l["x"], l["z"], l["r"]] for l in self.logs.values()],
             "items": [[i["id"], i["kind"], i["x"], i["z"]] for i in self.items.values()],

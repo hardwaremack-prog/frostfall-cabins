@@ -347,7 +347,13 @@ function buildCabin(c) {
   box(fw, H, T, wall, -(0.8 + fw / 2), Y0 + H / 2, hd + T / 2);
   box(fw, H, T, wall, 0.8 + fw / 2, Y0 + H / 2, hd + T / 2);
   box(1.6, 0.8, T, wall, 0, Y0 + 2.6, hd + T / 2);
-  const door = box(0.08, 2.2, 1.5, plank, 0.8, Y0 + 1.1, hd + 0.75); door.rotation.y = 0; door.position.set(1.5, Y0 + 1.1, hd + 0.8); door.rotation.y = Math.PI / 2 - 0.3;
+  // the door swings on hinges at the right side of the doorway
+  c.door = new THREE.Group(); c.door.position.set(0.8, Y0, hd + T / 2); g.add(c.door);
+  const doorM = new THREE.MeshLambertMaterial({ color: 0x6e4f33 });
+  const leaf = new THREE.Mesh(new THREE.BoxGeometry(1.58, 2.2, 0.09), doorM); leaf.position.set(-0.8, 1.1, 0); c.door.add(leaf);
+  for (const y of [0.35, 1.1, 1.85]) { const brace = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.14, 0.04), plank); brace.position.set(-0.8, y, 0.06); c.door.add(brace); const b2 = brace.clone(); b2.position.z = -0.06; c.door.add(b2); }
+  for (const z of [0.09, -0.09]) { const knob = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 6), new THREE.MeshLambertMaterial({ color: 0xb8a24a })); knob.position.set(-1.42, 1.05, z); c.door.add(knob); }
+  c.doorAngle = 1.75;
   // gables + roof
   for (const sz of [-1, 1]) box(CABIN_W + 2 * T, 0.32, T, wall, 0, Y0 + H + 0.16, sz * (hd + T / 2));
   const span = hd + T + 0.3, rise = span * Math.tan(0.5);
@@ -1004,7 +1010,7 @@ function highlightTarget() {
     hiSprite.renderOrder = 4; scene.add(hiSprite);
   }
   const t = target;
-  if (!t || t.big || t.kind === 'animal' || t.kind === 'item' || t.kind === 'stove' || t.kind === 'woodbox' || t.kind === 'pantry' || t.kind === 'candle' || t.kind === 'radio') { hiSprite.visible = false; return; }
+  if (!t || t.big || t.kind === 'animal' || t.kind === 'item' || t.kind === 'stove' || t.kind === 'woodbox' || t.kind === 'pantry' || t.kind === 'candle' || t.kind === 'radio' || t.kind === 'door') { hiSprite.visible = false; return; }
   hiSprite.visible = true; hiSprite.position.set(t.x, t.y + 0.35, t.z);
   const s = 1.3 + Math.sin(clockU.value * 6) * 0.15; hiSprite.scale.set(s, s, 1);
 }
@@ -1193,13 +1199,13 @@ function interactTargets() {
   cabins.forEach((c, i) => {
     if (Math.hypot(me.x - c.x, me.z - c.z) > 12) return;
     const add = (kind, [lx, lz], y, extra) => { const [x, z] = toWorld(c, lx, lz); out.push({ kind, cabin: i, x, z, y: c.base + y, ...extra }); };
-    add('stove', STOVE, 1.2); add('woodbox', WOODBOX, 0.8); add('pantry', PANTRY, 1.3); add('radio', RADIO, 1.75);
+    add('stove', STOVE, 1.2); add('woodbox', WOODBOX, 0.8); add('pantry', PANTRY, 1.3); add('radio', RADIO, 1.75); add('door', [0, CABIN_D / 2 + 0.18], 1.2);
     CANDLES.forEach((cd, k) => add('candle', cd, cd[2], { i: k }));
   });
   storyTargets(out);
   return out;
 }
-const REACH = { log: 4.0, item: 3.6, animal: 4.0, hole: 3.0, heli: 6.5, bunker: 4.6, radio: 2.8 };
+const REACH = { door: 2.8, log: 4.0, item: 3.6, animal: 4.0, hole: 3.0, heli: 6.5, bunker: 4.6, radio: 2.8 };
 function findTarget() {
   const fx = -Math.sin(me.yaw), fz = -Math.cos(me.yaw);
   const eye = me.y + 1.62, look = Math.sin(me.pitch);
@@ -1223,6 +1229,7 @@ function promptFor(t) {
   if (t.kind === 'log') return p.c < 4 ? ['E', 'Pick up firewood  (or click)'] : [null, 'Your arms are full (4 logs)'];
   const sp = storyPrompt(t, p); if (sp) return sp;
   const cs = cabins[t.cabin].state; if (!cs) return null;
+  if (t.kind === 'door') return ['E', cs.door ? 'Close the door (keeps the heat in)' : 'Open the door'];
   if (t.kind === 'radio') return ['E', S.siren && !S.impact ? 'LISTEN to the emergency broadcast!' : 'Listen to the solar radio'];
   if (t.kind === 'woodbox') return p.c > 0 ? ['E', `Stack ${Math.min(p.c, 12 - cs.wood)} log${p.c > 1 ? 's' : ''} in the woodbox (${cs.wood}/12)`] : cs.wood > 0 ? ['E', `Take a log (${cs.wood} stacked)`] : [null, 'Woodbox is empty'];
   if (t.kind === 'pantry') return p.can ? [null, 'Already holding a can'] : cs.cans > 0 ? ['E', `Take a can of stew (${cs.cans} left)`] : [null, 'Pantry is empty'];
@@ -1259,7 +1266,8 @@ function collide() {
   for (const c of cabins) {
     if (Math.abs(me.x - c.x) > 12 || Math.abs(me.z - c.z) > 12) continue;
     let [lx, lz] = toLocal(c, me.x, me.z);
-    for (const [x0, x1, z0, z1] of c.solids) {
+    const solids = c.doorAngle < 0.6 ? [...c.solids, [-0.8, 0.8, CABIN_D / 2, CABIN_D / 2 + 0.35]] : c.solids;
+    for (const [x0, x1, z0, z1] of solids) {
       const cx = clamp(lx, x0, x1), cz = clamp(lz, z0, z1);
       const dx = lx - cx, dz = lz - cz, d = Math.hypot(dx, dz);
       if (d < R) {
@@ -1393,6 +1401,11 @@ function animateCabins(t) {
     c.smoke.material.uniforms.uA.value = lit ? 0.4 + f * 0.6 : 0;
     c.smoke.material.uniforms.uWind.value.set(0.25 + w.x / 9 * (0.3 + gale), w.y / 9 * (0.3 + gale));
     c.woodLogs.forEach((l, i) => (l.visible = i < cs.wood));
+    const want = cs.door ? 1.75 : 0;
+    if (c.doorWant !== undefined && c.doorWant !== want && Math.hypot(me.x - c.x, me.z - c.z) < 40) noiseBurst(want ? 0.35 : 0.18, want ? 900 : 300, want ? 0.18 : 0.5);
+    c.doorWant = want;
+    c.doorAngle += (want - c.doorAngle) * 0.18;
+    c.door.rotation.y = c.doorAngle;
     c.cans.forEach((cn, i) => (cn.visible = i < cs.cans));
     c.candleFlames.forEach((fl, i) => { fl.visible = !!cs.candles[i]; fl.scale.set(0.3 + Math.sin(t * 17 + i) * 0.03, 0.48 + Math.sin(t * 13 + i * 2) * 0.05, 1); });
     c.pot.visible = cs.pot >= 0; c.steam.visible = cs.pot >= 20; c.steam.position.y = 1.65 + Math.sin(t * 2) * 0.08;
