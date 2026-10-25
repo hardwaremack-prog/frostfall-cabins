@@ -323,6 +323,109 @@ const winOn = new THREE.MeshBasicMaterial({ color: 0xffb455, fog: false });
 const glowSprite = () => glowTex('rgba(255,200,120,0.95)', 'rgba(255,140,50,0.35)');
 let GLOWTEX = null;
 
+// ---------------------------------------------------------- canned food
+const CAN_INFO = {
+  stew: { name: 'Beef Stew', band: '#8a3d1c', bg: '#f3e6c8', ink: '#5a2410', art: 'pot' },
+  spam: { name: 'Spam', band: '#b8262b', bg: '#f6f1e4', ink: '#ffffff', art: 'ham' },
+  sausage: { name: 'Sausage Soup', band: '#2f6b3a', bg: '#f4ecd2', ink: '#1f3d24', art: 'links' },
+  beans: { name: 'Pork & Beans', band: '#c9862a', bg: '#fbf3dc', ink: '#5a2f0a', art: 'beans' },
+  veg: { name: 'Mixed Vegetables', band: '#3c8a3a', bg: '#fbf8ea', ink: '#215a1f', art: 'veg' },
+};
+const canMats = {}, CAN_TOP = new THREE.MeshLambertMaterial({ color: 0xc7ccd3, emissive: 0x202226 });
+function canLabelTex(kind) {
+  const k = CAN_INFO[kind];
+  return canvasTex(512, 256, (g, w, h) => {
+    g.fillStyle = k.bg; g.fillRect(0, 0, w, h);
+    g.fillStyle = k.band; g.fillRect(0, 0, w, 62); g.fillRect(0, h - 40, w, 40);
+    g.fillStyle = kind === 'spam' ? k.ink : '#fff'; g.font = 'bold 44px Georgia, serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText(k.name.toUpperCase(), w / 2, 33);
+    g.fillStyle = '#fff'; g.font = 'bold 20px sans-serif'; g.fillText('NET WT 15 OZ', w / 2, h - 20);
+    // a little picture of what's inside
+    const cx = w / 2, cy = 150;
+    if (k.art === 'pot') { g.fillStyle = '#7a4a2a'; g.beginPath(); g.ellipse(cx, cy, 90, 46, 0, 0, 7); g.fill(); g.fillStyle = '#d07a3a'; for (let i = 0; i < 9; i++) { g.beginPath(); g.arc(cx - 60 + (i * 37) % 120, cy - 15 + (i * 23) % 34, 12, 0, 7); g.fill(); } }
+    if (k.art === 'ham') { g.fillStyle = '#e88a8a'; g.fillRect(cx - 90, cy - 40, 180, 80); g.fillStyle = '#d06a6a'; g.fillRect(cx - 90, cy + 10, 180, 30); g.fillStyle = k.band; g.font = 'bold 30px sans-serif'; g.fillText('SPICED HAM', cx, cy - 6); }
+    if (k.art === 'links') { g.fillStyle = '#a0522d'; for (let i = 0; i < 4; i++) { g.beginPath(); g.ellipse(cx - 75 + i * 50, cy, 24, 14, 0.3, 0, 7); g.fill(); } g.fillStyle = '#3a8a3a'; for (let i = 0; i < 6; i++) { g.beginPath(); g.arc(cx - 80 + i * 32, cy + 30, 6, 0, 7); g.fill(); } }
+    if (k.art === 'beans') { g.fillStyle = '#b5532a'; for (let i = 0; i < 16; i++) { g.beginPath(); g.ellipse(cx - 90 + (i * 47) % 180, cy - 25 + (i * 19) % 55, 13, 8, i, 0, 7); g.fill(); } g.fillStyle = '#e8b0a0'; g.fillRect(cx - 18, cy - 10, 36, 26); }
+    if (k.art === 'veg') { const cs = ['#f08a24', '#3cae3c', '#f4d23a', '#e04a3a']; for (let i = 0; i < 18; i++) { g.fillStyle = cs[i % 4]; g.fillRect(cx - 95 + (i * 41) % 190, cy - 30 + (i * 17) % 60, 16, 16); } }
+    g.fillStyle = k.ink; g.font = 'bold 22px sans-serif'; g.fillText('READY TO HEAT', cx, cy + 62);
+  });
+}
+function canMaterial(kind) {
+  if (!canMats[kind]) { const t = canLabelTex(kind); canMats[kind] = new THREE.MeshLambertMaterial({ map: t }); }
+  return canMats[kind];
+}
+// a can sitting on y=0 (its bottom), about 22 cm tall; Spam comes in a flat rectangular tin
+function makeCan(kind) {
+  if (kind === 'spam') {
+    const g = new THREE.Group();
+    const lab = canMaterial(kind);
+    const b = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.11, 0.12), [CAN_TOP, CAN_TOP, CAN_TOP, CAN_TOP, lab, lab]); b.position.y = 0.055; g.add(b);
+    const key = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.01, 0.03), CAN_TOP); key.position.set(0.05, 0.115, 0); g.add(key);
+    return g;
+  }
+  const g = new THREE.Group();
+  const c = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.085, 0.2, 16), [canMaterial(kind), CAN_TOP, CAN_TOP]); c.position.y = 0.1; c.rotation.y = Math.PI; g.add(c);
+  for (const y of [0.004, 0.198]) { const rim = new THREE.Mesh(new THREE.TorusGeometry(0.085, 0.006, 4, 16), CAN_TOP); rim.rotation.x = Math.PI / 2; rim.position.y = y; g.add(rim); }
+  return g;
+}
+// food cooking on a metal plate: raw colours that brown as it cooks
+const PLATE_MAT = new THREE.MeshPhongMaterial({ color: 0xb9bec6, specular: 0xffffff, shininess: 60 });
+const RAW_COOKED = {
+  venison: [new THREE.Color(0xa3242a), new THREE.Color(0x5a2f16)],
+  rabbit: [new THREE.Color(0xe8a8a0), new THREE.Color(0xb27438)],
+  fish: [new THREE.Color(0xa9bccb), new THREE.Color(0xc89458)],
+};
+function makeDish(art) {
+  const g = new THREE.Group();
+  if (art.startsWith('can:')) {             // an open, labelled can heating up
+    const c = makeCan(art.slice(4)); g.add(c);
+    const lid = new THREE.Mesh(new THREE.CircleGeometry(0.08, 14), new THREE.MeshLambertMaterial({ color: 0x8a4a22 })); lid.rotation.x = -Math.PI / 2; lid.position.y = art === 'can:spam' ? 0.112 : 0.196; if (art === 'can:spam') lid.scale.set(1.2, 0.7, 1); g.add(lid);
+    g.userData = { mats: [] }; return g;
+  }
+  const plate = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.16, 0.025, 22), PLATE_MAT); plate.position.y = 0.0125; g.add(plate);
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.185, 0.012, 5, 22), PLATE_MAT); rim.rotation.x = Math.PI / 2; rim.position.y = 0.027; g.add(rim);
+  const mat = new THREE.MeshLambertMaterial({ color: RAW_COOKED[art] ? RAW_COOKED[art][0] : 0x884422 });
+  const mats = [mat];
+  if (art === 'venison') {           // a thick steak with a fat edge
+    const steak = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.04, 18), mat); steak.scale.set(1.25, 1, 0.85); steak.position.y = 0.05; g.add(steak);
+    const fatMat = new THREE.MeshLambertMaterial({ color: 0xf2e6d6 }); mats.push(fatMat);
+    const fat = new THREE.Mesh(new THREE.TorusGeometry(0.12, 0.012, 4, 18, Math.PI * 0.8), fatMat); fat.rotation.x = Math.PI / 2; fat.scale.set(1.25, 0.85, 1); fat.position.y = 0.05; g.add(fat);
+  } else if (art === 'rabbit') {     // a small roast rabbit: body and two legs
+    const body = new THREE.Mesh(new THREE.SphereGeometry(0.07, 12, 9), mat); body.scale.set(1.6, 0.75, 0.9); body.position.y = 0.075; g.add(body);
+    for (const s of [-1, 1]) { const leg = new THREE.Mesh(new THREE.CapsuleGeometry(0.025, 0.09, 4, 8), mat); leg.rotation.z = Math.PI / 2 + s * 0.2; leg.rotation.y = s * 0.5; leg.position.set(-0.12, 0.05, s * 0.05); g.add(leg); }
+  } else if (art === 'fish') {       // a whole trout with tail and eye
+    const body = new THREE.Mesh(new THREE.SphereGeometry(0.06, 14, 10), mat); body.scale.set(2.6, 0.7, 0.9); body.position.y = 0.06; g.add(body);
+    const tail = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.08, 4), mat); tail.rotation.z = -Math.PI / 2; tail.scale.set(1, 1, 0.3); tail.position.set(0.18, 0.06, 0); g.add(tail);
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.008, 6, 4), new THREE.MeshBasicMaterial({ color: 0x111111 })); eye.position.set(-0.12, 0.072, 0.045); g.add(eye);
+    const lineMat = new THREE.MeshLambertMaterial({ color: 0x5a3a20 }); mats.push(lineMat);
+    for (let k = 0; k < 3; k++) { const grill = new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.005, 0.1), lineMat); grill.position.set(-0.06 + k * 0.06, 0.103, 0); g.add(grill); }
+  }
+  g.userData = { mats, art };
+  return g;
+}
+// show the right dish for a pot state; k = 0 raw .. 1 cooked
+function syncDish(holder, art, k) {
+  if (holder.userData.art !== art) {
+    if (holder.userData.dish) holder.remove(holder.userData.dish);
+    holder.userData.dish = art ? makeDish(art) : null; holder.userData.art = art;
+    if (holder.userData.dish) holder.add(holder.userData.dish);
+  }
+  const d = holder.userData.dish; if (!d || !RAW_COOKED[art]) return;
+  d.userData.mats[0].color.copy(RAW_COOKED[art][0]).lerp(RAW_COOKED[art][1], clamp(k, 0, 1));
+  if (d.userData.mats[1] && art === 'venison') d.userData.mats[1].color.setHex(0xf2e6d6).lerp(new THREE.Color(0xc8904a), clamp(k, 0, 1));
+}
+
+// keep a row of shelf slots showing whichever cans are actually there
+function syncCanSlots(slots, list, parent) {
+  slots.forEach((slot, i) => {
+    const want = list && i < list.length ? list[i] : null;
+    if (slot.kind === want) return;
+    if (slot.mesh) { parent.remove(slot.mesh); slot.mesh = null; }
+    slot.kind = want;
+    if (want) { slot.mesh = makeCan(want); slot.mesh.position.copy(slot.pos); slot.mesh.rotation.y = slot.ry || 0; parent.add(slot.mesh); }
+  });
+}
+
 function signTex(text) {
   return canvasTex(1024, 190, (g, w, h) => {
     g.fillStyle = '#5a3a20'; g.fillRect(0, 0, w, h); g.strokeStyle = '#2a190d'; g.lineWidth = 14; g.strokeRect(7, 7, w - 14, h - 14);
@@ -389,8 +492,7 @@ function buildCabin(c) {
   const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, 2.3), dark); pipe.position.set(STOVE[0], Y0 + 2.1, STOVE[1] - 0.2); g.add(pipe);
   c.stoveGlow = new THREE.MeshBasicMaterial({ color: 0x111111 });
   const sd = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.4), c.stoveGlow); sd.position.set(STOVE[0], Y0 + 0.5, STOVE[1] + 0.41); g.add(sd);
-  c.pot = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.22, 10), new THREE.MeshLambertMaterial({ color: 0xb7b9c0 }));
-  c.pot.position.set(STOVE[0] + 0.25, Y0 + 1.12, STOVE[1]); g.add(c.pot);
+  c.pot = new THREE.Group(); c.pot.position.set(STOVE[0] + 0.2, Y0 + 1.01, STOVE[1] + 0.05); c.pot.userData = {}; g.add(c.pot);
   c.steam = new THREE.Sprite(new THREE.SpriteMaterial({ map: GLOWTEX, color: 0xffffff, transparent: true, opacity: 0.35, depthWrite: false }));
   c.steam.scale.set(0.5, 0.8, 1); c.steam.position.set(STOVE[0] + 0.25, Y0 + 1.6, STOVE[1]); g.add(c.steam);
   // woodbox with stack
@@ -413,10 +515,12 @@ function buildCabin(c) {
   }
   // pantry
   const [px, pz] = PANTRY;
-  box(0.45, 1.9, 1.5, plank, px + 0.6, Y0 + 0.95, pz); for (const y of [0.6, 1.2]) box(0.6, 0.05, 1.5, plank, px + 0.5, Y0 + y, pz);
-  c.cans = [];
-  const canM = new THREE.MeshLambertMaterial({ color: 0xc23b2b });
-  for (let i = 0; i < 3; i++) { const cn = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.2, 10), canM); cn.position.set(px + 0.45, Y0 + 0.72, pz - 0.45 + i * 0.45); g.add(cn); c.cans.push(cn); }
+  box(0.04, 1.9, 1.5, plank, 4.96, Y0 + 0.95, pz);                                   // back
+  for (const s of [-1, 1]) box(0.55, 1.9, 0.05, plank, 4.68, Y0 + 0.95, pz + s * 0.73); // sides
+  for (const y of [0.04, 0.62, 1.22, 1.88]) box(0.55, 0.05, 1.46, plank, 4.68, Y0 + y, pz); // shelves
+  c.canSlots = [0, 1, 2, 3].map((i) => ({ pos: new THREE.Vector3(4.66, Y0 + 0.645, pz - 0.5 + i * 0.33), ry: -Math.PI / 2, kind: null, mesh: null }));
+  c.cabinGroup = g;
+  for (let k = 0; k < 3; k++) { const jar = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.18, 10), new THREE.MeshLambertMaterial({ color: [0xd8b06a, 0xb85a3a, 0xe8e0c8][k], transparent: true, opacity: 0.85 })); jar.position.set(4.68, Y0 + 1.34, pz - 0.35 + k * 0.35); g.add(jar); }
   // bed + rug
   box(2.2, 0.45, 1.3, plank, -2.8, Y0 + 0.23, 2.9);
   box(1.9, 0.12, 1.22, new THREE.MeshLambertMaterial({ color: 0x8c2f2a }), -2.65, Y0 + 0.5, 2.9);
@@ -465,6 +569,20 @@ function buildCabin(c) {
   c.radioDial = new THREE.Mesh(new THREE.PlaneGeometry(0.22, 0.09), new THREE.MeshBasicMaterial({ color: 0x6b5a2a })); c.radioDial.position.set(0.15, 0.06, 0.101); radio.add(c.radioDial);
   const ant = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.6), dark); ant.position.set(0.25, 0.45, 0); ant.rotation.z = -0.3; radio.add(ant);
   const shelf = box(0.3, 0.05, 0.8, plank, RADIO[0] - 0.05, Y0 + 1.25, RADIO[1]);
+  // cable from the solar panel, down the right-hand gable, through the wall to the radio
+  const cableM = new THREE.MeshLambertMaterial({ color: 0x15161a });
+  const cable = (a, b) => {
+    const A = new THREE.Vector3(...a), B = new THREE.Vector3(...b), len = A.distanceTo(B);
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, len, 5), cableM);
+    m.position.copy(A).add(B).multiplyScalar(0.5); m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), B.clone().sub(A).normalize()); g.add(m);
+  };
+  const gx = hw + T + 0.03, pY = Y0 + H + 1.82;
+  cable([4.0, pY, 2.06], [gx, Y0 + H + 1.55, 2.0]);               // across the roof to the edge
+  cable([gx, Y0 + H + 1.55, 2.0], [gx, Y0 + H + 0.1, 0.9]);         // down the gable
+  cable([gx, Y0 + H + 0.1, 0.9], [gx, Y0 + 1.62, -0.9]);            // down the wall
+  cable([gx, Y0 + 1.62, -0.9], [RADIO[0] + 0.08, Y0 + 1.62, RADIO[1]]);   // in through the wall
+  for (const [cy, cz] of [[Y0 + H - 0.3, 0.55], [Y0 + 2.3, -0.3]]) { const clip = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.06, 0.06), new THREE.MeshLambertMaterial({ color: 0x8a8f99 })); clip.position.set(gx - 0.01, cy, cz); g.add(clip); }
+
   // chopping block out front (an axe turns up here on day 2)
   const stump = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.48, 0.6, 10), new THREE.MeshLambertMaterial({ color: 0x6a4a30 }));
   stump.position.set(3.6, 0.3, 6.3); g.add(stump);
@@ -574,6 +692,10 @@ const ROOM_DEPTH = 32;   // the shelter is this far under its hatch
 const PART_NAMES = { battery: 'battery', fuel: 'fuel can', rotor: 'rotor blade' };
 const PART_FROM = { battery: 'Summit Lookout', fuel: 'Old Mill', rotor: 'Hollow End' };
 const FOOD_NAMES = { stew: 'stew', meat: 'venison', fish: 'trout' };
+function dishName(art, kind) {
+  if (art === 'rabbit') return 'roast rabbit'; if (art === 'venison') return 'venison steak'; if (art === 'fish') return 'pan-fried trout';
+  if (art && art.startsWith('can:')) return 'hot ' + CAN_INFO[art.slice(4)].name; return 'hot ' + FOOD_NAMES[kind];
+}
 const FOOD_TIME = { stew: 20, meat: 25, fish: 15 };
 
 function std(color, extra) { return new THREE.MeshLambertMaterial({ color, ...(extra || {}) }); }
@@ -708,11 +830,10 @@ function buildBunkerRoom() {
   // canned food on the back wall: 3 shelves x 8 cans
   const cans = [];
   for (let row = 0; row < 3; row++) {
-    const sh = new THREE.Mesh(new THREE.BoxGeometry(9.6, 0.06, 0.45), wood); sh.position.set(0, 0.55 + row * 0.65, -3.75); g.add(sh);
-    for (let k = 0; k < 8; k++) {
-      const c = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.24, 10), std([0xc23b2b, 0x3a6fd8, 0xd8a83a, 0x3a9a5a][(k + row) % 4]));
-      c.position.set(-4.2 + k * 1.2, 0.7 + row * 0.65, -3.72); g.add(c); cans.push(c);
-    }
+    const y = 0.55 + row * 0.65;
+    const sh = new THREE.Mesh(new THREE.BoxGeometry(9.6, 0.06, 0.45), wood); sh.position.set(0, y, -3.75); g.add(sh);
+    for (const x of [-4.7, 0, 4.7]) { const br = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.2, 0.4), steel); br.position.set(x, y - 0.12, -3.78); g.add(br); }
+    for (let k = 0; k < 8; k++) cans.push({ pos: new THREE.Vector3(-4.2 + k * 1.2, y + 0.03, -3.7), ry: 0, kind: null, mesh: null });
   }
   const sTex = canvasTex(512, 128, (c, w, h) => { c.fillStyle = '#f2c230'; c.fillRect(0, 0, w, h); c.fillStyle = '#111'; c.font = 'bold 64px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('FALLOUT SHELTER', w / 2, h / 2 + 4); });
   const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 0.65), new THREE.MeshBasicMaterial({ map: sTex })); sign.position.set(0, 2.75, -3.97); g.add(sign);
@@ -725,7 +846,7 @@ function buildBunkerRoom() {
     const plate = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.24, 0.04, 18), dark); plate.position.set(5.45, 0.96, z); g.add(plate);
     const coilMat = new THREE.MeshBasicMaterial({ color: 0x331a14 });
     const coil = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.025, 6, 20), coilMat); coil.rotation.x = -Math.PI / 2; coil.position.set(5.45, 0.99, z); g.add(coil);
-    const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.13, 0.18, 12), std(0xb7b9c0)); pot.position.set(5.45, 1.09, z); pot.visible = false; g.add(pot);
+    const pot = new THREE.Group(); pot.position.set(5.45, 1.0, z); pot.rotation.y = Math.PI / 2; pot.userData = {}; g.add(pot);
     const knob = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.05, 8), std(0x111111)); knob.rotation.z = Math.PI / 2; knob.position.set(5.03, 0.75, z); g.add(knob);
     burners.push({ coilMat, pot });
   }
@@ -1027,8 +1148,8 @@ function animateStory(dt, t) {
     L.intensity = inB ? (S.impact && shakeT > 0 ? (Math.random() < 0.3 ? 0.2 : 2.2) : 2.2) : 0;
     if (inB && S.bk) {
       const ud = bunkerRoom.userData;
-      ud.cans.forEach((c, i) => (c.visible = i < S.bk.cans));
-      ud.burners.forEach((b, i) => { const [pot, kind] = S.bk.burners[i]; const on = pot >= 0; b.pot.visible = on;
+      syncCanSlots(ud.cans, S.bk.cl, bunkerRoom);
+      ud.burners.forEach((b, i) => { const [pot, kind, art] = S.bk.burners[i]; const on = pot >= 0; syncDish(b.pot, on ? art || 'can:stew' : '', on ? pot / (FOOD_TIME[kind] || 20) : 0);
         b.coilMat.color.setRGB(on ? 1 : 0.2, on ? 0.25 + Math.sin(t * 9 + i) * 0.03 : 0.1, on ? 0.08 : 0.08); });
       const worn = S.players.filter((q) => q.gc).length;
       ud.geigers.forEach((g2, i) => (g2.visible = i < Math.max(0, 6 - worn)));
@@ -1117,12 +1238,12 @@ function storyPrompt(t, p) {
     if (S.impact && !S.clear) return [null, 'The hatch is sealed from inside'];
     return ['E', 'Open the hatch and climb into the bunker'];
   }
-  if (t.kind === 'bk_can') return p.can ? [null, 'Already holding a can - cook it on a burner'] : S.bk.cans > 0 ? ['E', `Take a can of food (${S.bk.cans} on the shelves)`] : [null, 'The shelves are empty'];
+  if (t.kind === 'bk_can') return p.can ? [null, `Already holding ${CAN_INFO[p.ck].name} - cook it on a burner`] : S.bk.cans > 0 ? ['E', `Take a can of ${CAN_INFO[S.bk.cl[S.bk.cl.length - 1]].name} (${S.bk.cans} on the shelves)`] : [null, 'The shelves are empty'];
   if (t.kind === 'bk_geiger') return p.gc ? [null, 'You are wearing a Geiger counter'] : ['E', 'Clip on a Geiger counter'];
   if (t.kind === 'bk_burner') {
     const [pot, kind] = S.bk.burners[t.i];
-    if (pot >= 0 && kind) { const need = FOOD_TIME[kind]; return pot >= need ? ['E', `Eat the hot ${FOOD_NAMES[kind]}`] : [null, `Burner ${t.i + 1}: ${FOOD_NAMES[kind]} ${Math.round(pot / need * 100)}%`]; }
-    if (p.meat || p.fish || p.can) return ['E', `Cook ${p.meat ? 'venison' : p.fish ? 'trout' : 'the can'} on burner ${t.i + 1}` + cookChoices(p)];
+    if (pot >= 0 && kind) { const need = FOOD_TIME[kind]; const art = S.bk.burners[t.i][2]; return pot >= need ? ['E', `Eat the ${dishName(art, kind)}`] : [null, `Burner ${t.i + 1}: ${dishName(art, kind)} ${Math.round(pot / need * 100)}%`]; }
+    if (p.meat || p.fish || p.can) return ['E', `Cook ${p.meat ? (p.mk === 'rabbit' ? 'rabbit' : 'venison') : p.fish ? 'trout' : 'the ' + CAN_INFO[p.ck].name} on burner ${t.i + 1}` + cookChoices(p)];
     return [null, `Electric burner ${t.i + 1} (battery powered) - grab a can from the shelves`];
   }
   return null;
@@ -1143,6 +1264,7 @@ function storyHud(p) {
   const d = S.day, W = WINFO, rows = [];
   const tick = (ok, text) => rows.push(`<div class="obj${ok ? ' done' : ''}"><span>${ok ? '✓' : '•'}</span>${text}</div>`);
   if (d === 1) tick(false, 'Keep the stoves lit through the 2 AM gale');
+  if (S.sleep && S.sleep[0] > 0 && d < W.days) tick(false, `😴 ${S.sleep[0]}/${S.sleep[1]} ready to sleep${S.sleepWhy ? ' - ' + S.sleepWhy : ' - waiting for everyone to get in bed'}`);
   if (d >= 2 && d < 4) { tick(!!p.axe, 'Find an axe (chopping block outside each cabin)'); tick(false, 'Hunt deer or rabbits, cook the meat on a stove'); }
   if (d === 3) { tick(!!p.rod, 'Find a fishing rod (Frozen Lake dock)'); tick(false, 'Fish at an ice hole on the lake, cook the fish'); }
   if (d === 4 || (d === 5 && !S.siren)) {
@@ -1171,6 +1293,7 @@ function storyHud(p) {
   $('inv').innerHTML = inv.map((s) => `<span>${s}</span>`).join('');
   $('inv').classList.toggle('hidden', !inv.length);
   $('lostOv').classList.toggle('hidden', !p.lost || S.phase === 'dawn');
+  $('sleepOv').classList.toggle('hidden', !(S.slept > 0));
   $('flyOv').classList.toggle('hidden', !(p.fly > 0));
   $('bunkerOv').classList.toggle('hidden', !(p.inB && S.impact && impactAge < 12) || S.phase === 'dawn');
   // day banner
@@ -1247,7 +1370,7 @@ function highlightTarget() {
     hiSprite.renderOrder = 4; scene.add(hiSprite);
   }
   const t = target;
-  if (!t || t.big || t.kind === 'bonfire' || t.kind.startsWith('bk_') || t.kind === 'animal' || t.kind === 'item' || t.kind === 'stove' || t.kind === 'woodbox' || t.kind === 'pantry' || t.kind === 'candle' || t.kind === 'radio' || t.kind === 'door') { hiSprite.visible = false; return; }
+  if (!t || t.big || t.kind === 'bonfire' || t.kind.startsWith('bk_') || t.kind === 'animal' || t.kind === 'item' || t.kind === 'stove' || t.kind === 'woodbox' || t.kind === 'pantry' || t.kind === 'candle' || t.kind === 'radio' || t.kind === 'door' || t.kind === 'bed') { hiSprite.visible = false; return; }
   hiSprite.visible = true; hiSprite.position.set(t.x, t.y + 0.35, t.z);
   const s = 1.3 + Math.sin(clockU.value * 6) * 0.15; hiSprite.scale.set(s, s, 1);
 }
@@ -1443,14 +1566,14 @@ function interactTargets() {
   cabins.forEach((c, i) => {
     if (Math.hypot(me.x - c.x, me.z - c.z) > 12) return;
     const add = (kind, [lx, lz], y, extra) => { const [x, z] = toWorld(c, lx, lz); out.push({ kind, cabin: i, x, z, y: c.base + y, ...extra }); };
-    add('stove', STOVE, 1.2); add('woodbox', WOODBOX, 0.8); add('pantry', PANTRY, 1.3); add('radio', RADIO, 1.75); add('door', [0, CABIN_D / 2 + 0.18], 1.2);
+    add('stove', STOVE, 1.2); add('woodbox', WOODBOX, 0.8); add('pantry', PANTRY, 1.3); add('radio', RADIO, 1.75); add('door', [0, CABIN_D / 2 + 0.18], 1.2); add('bed', [-2.8, 2.9], 0.6);
     CANDLES.forEach((cd, k) => add('candle', cd, cd[2], { i: k }));
   });
   storyTargets(out);
   if (WINFO) { const [bx, bz] = WINFO.bonfire; if (Math.hypot(bx - me.x, bz - me.z) < 5) out.push({ kind: 'bonfire', x: bx, z: bz, y: spawnBase + 1, big: true }); }
   return out;
 }
-const REACH = { bonfire: 4.5, bk_can: 2.6, bk_geiger: 2.4, bk_burner: 1.9, door: 2.8, log: 4.0, item: 3.6, animal: 4.0, hole: 3.0, heli: 6.5, bunker: 4.6, radio: 2.8 };
+const REACH = { bed: 2.3, bonfire: 4.5, bk_can: 2.6, bk_geiger: 2.4, bk_burner: 1.9, door: 2.8, log: 4.0, item: 3.6, animal: 4.0, hole: 3.0, heli: 6.5, bunker: 4.6, radio: 2.8 };
 function findTarget() {
   const fx = -Math.sin(me.yaw), fz = -Math.cos(me.yaw);
   const eye = me.y + 1.62, look = Math.sin(me.pitch);
@@ -1481,22 +1604,28 @@ function promptFor(t) {
   }
   const sp = storyPrompt(t, p); if (sp) return sp;
   const cs = cabins[t.cabin].state; if (!cs) return null;
+  if (t.kind === 'bed') {
+    const [v, n] = S.sleep || [0, 1];
+    if (!isNight() || S.day >= WINFO.days) return [null, 'A warm bed - you can sleep here at night'];
+    if (p.zz) return ['E', `Get up (${v}/${n} ready to sleep)` + (S.sleepWhy ? ` - ${S.sleepWhy}` : '')];
+    return ['E', `Sleep until dawn (${v}/${n} ready) - everyone needs a lit stove with wood to last the night`];
+  }
   if (t.kind === 'door') return ['E', cs.door ? 'Close the door (keeps the heat in)' : 'Open the door'];
   if (t.kind === 'radio') return ['E', S.siren && !S.impact ? 'LISTEN to the emergency broadcast!' : 'Listen to the solar radio'];
   if (t.kind === 'woodbox') return p.c > 0 ? ['E', `Stack ${Math.min(p.c, 12 - cs.wood)} log${p.c > 1 ? 's' : ''} in the woodbox (${cs.wood}/12)`] : cs.wood > 0 ? ['E', `Take a log (${cs.wood} stacked)`] : [null, 'Woodbox is empty'];
-  if (t.kind === 'pantry') return p.can ? [null, 'Already holding a can'] : cs.cans > 0 ? ['E', `Take a can of stew (${cs.cans} left)`] : [null, 'Pantry is empty'];
+  if (t.kind === 'pantry') return p.can ? [null, `Already holding a can of ${CAN_INFO[p.ck].name}`] : cs.cans > 0 ? ['E', `Take a can of ${CAN_INFO[cs.cl[cs.cl.length - 1]].name} (${cs.cans} left)`] : [null, 'Pantry is empty'];
   if (t.kind === 'candle') return cs.candles[t.i] ? ['E', 'Blow out candle'] : cs.fuel > 0 ? ['E', 'Light candle from the stove'] : [null, 'Light the stove first'];
   if (t.kind === 'stove') {
     const pk = cs.pk || 'stew', need = FOOD_TIME[pk] || 20;
-    if (cs.pot >= need) return ['E', `Eat the hot ${FOOD_NAMES[pk]}`];
+    if (cs.pot >= need) return ['E', `Eat the ${dishName(cs.art, pk)}`];
     if (cs.pot < 0 && (p.meat || p.fish || p.can)) {
-      const what = p.meat ? 'venison' : p.fish ? 'trout' : 'the can of stew';
+      const what = p.meat ? (p.mk === 'rabbit' ? 'rabbit' : 'venison') : p.fish ? 'trout' : `the ${CAN_INFO[p.ck].name}`;
       if (cs.fuel > 0) return ['E', `Cook ${what}` + cookChoices(p)];
       if (!p.meat && !p.fish) return ['E', 'Set the can on the stove (light it to heat)'];
       if (!(p.c > 0 || cs.wood > 0)) return [null, `Light the stove to cook ${what} - bring firewood`];
     }
     const src = p.c > 0 ? '' : cs.wood > 0 ? ' from the woodbox' : null;
-    const heat = cs.pot >= 0 ? `  ·  ${FOOD_NAMES[pk]} ${Math.round(cs.pot / need * 100)}%` : '';
+    const heat = cs.pot >= 0 ? `  ·  ${dishName(cs.art, pk)} ${Math.round(cs.pot / need * 100)}%` : '';
     if (src !== null) {
       if (cs.fuel > 91) return [null, 'Stove is roaring — full' + heat];
       return ['E', (cs.fuel <= 0 ? 'Light the stove' : 'Add a log') + src + heat];
@@ -1508,13 +1637,14 @@ function promptFor(t) {
 // when you carry more than one kind of food, the prompt offers the number keys
 function cookChoices(p) {
   const opts = [];
-  if (p.meat) opts.push('1 venison'); if (p.fish) opts.push('2 trout'); if (p.can) opts.push('3 can');
+  if (p.meat) opts.push('1 ' + (p.mk === 'rabbit' ? 'rabbit' : 'venison')); if (p.fish) opts.push('2 trout'); if (p.can) opts.push('3 ' + CAN_INFO[p.ck].name);
   return opts.length > 1 ? '   ·   or press ' + opts.join(' · ') : '';
 }
 function interact() {
   const t = target; if (!t || !S) return;
   if (t.kind === 'log') send({ t: 'act', a: 'pickup', id: t.id });
   else if (t.kind === 'bonfire') send({ t: 'act', a: 'bonfire' });
+  else if (t.kind === 'bed') send({ t: 'act', a: 'sleep', cabin: t.cabin });
   else if (storyInteract(t)) return;
   else send({ t: 'act', a: t.kind, cabin: t.cabin, i: t.i });
 }
@@ -1681,9 +1811,12 @@ function animateCabins(t) {
     c.doorWant = want;
     c.doorAngle += (want - c.doorAngle) * 0.18;
     c.door.rotation.y = c.doorAngle;
-    c.cans.forEach((cn, i) => (cn.visible = i < cs.cans));
+    syncCanSlots(c.canSlots, cs.cl, c.cabinGroup);
     c.candleFlames.forEach((fl, i) => { fl.visible = !!cs.candles[i]; fl.scale.set(0.3 + Math.sin(t * 17 + i) * 0.03, 0.48 + Math.sin(t * 13 + i * 2) * 0.05, 1); });
-    c.pot.visible = cs.pot >= 0; c.steam.visible = cs.pot >= 20; c.steam.position.y = 1.65 + Math.sin(t * 2) * 0.08;
+    const need = FOOD_TIME[cs.pk] || 20;
+    syncDish(c.pot, cs.pot >= 0 ? cs.art || 'can:stew' : '', cs.pot / need);
+    c.steam.visible = cs.pot >= 0 && (cs.pot >= need || (lit && cs.pot > need * 0.4)); c.steam.position.y = 1.65 + Math.sin(t * 2) * 0.08;
+    c.steam.material.opacity = cs.pot >= need ? 0.4 : 0.18;
     if (c.wisps) c.wisps.forEach((wp) => { const d = wp.userData; d.a += 0.004; wp.position.set(c.x + Math.cos(d.a) * d.r, groundAt(c.x + Math.cos(d.a) * d.r, c.z + Math.sin(d.a * 1.3) * d.r) + d.y + Math.sin(t + d.r) * 0.3, c.z + Math.sin(d.a * 1.3) * d.r); });
   }
 }
@@ -1739,7 +1872,7 @@ function updateHud() {
   $('warmBar').style.width = p.w + '%'; $('warmN').textContent = Math.round(p.w);
   $('hungBar').style.width = p.h + '%'; $('hungN').textContent = Math.round(p.h);
   document.querySelectorAll('#carry .logdot').forEach((d, i) => d.classList.toggle('on', i < p.c));
-  const ct = $('canTag'); ct.classList.toggle('hidden', !p.can); ct.textContent = 'Cold can';
+  const ct = $('canTag'); ct.classList.toggle('hidden', !p.can); ct.textContent = p.can ? CAN_INFO[p.ck].name : '';
   cabins.forEach((c, i) => {
     const cs = c.state; if (!cs) return;
     const here = S.players.filter((q) => q.in === i);

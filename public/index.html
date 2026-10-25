@@ -137,6 +137,8 @@
   #radioOv { position: fixed; left: 50%; bottom: 170px; transform: translateX(-50%); width: min(620px, 92vw); padding: 14px 16px; z-index: 13; pointer-events: none;
     background: rgba(16,22,12,.86); border: 1px solid rgba(160,220,120,.35); border-radius: 10px; font: 15px/1.45 ui-monospace, "DejaVu Sans Mono", monospace; color: #c8f0a8; }
   #radioOv .lbl { font-size: 11px; letter-spacing: .16em; color: #8fbf6a; margin-bottom: 6px; }
+  #sleepOv { background: radial-gradient(ellipse at 50% 120%, rgba(240,160,110,.55), rgba(5,8,15,.92) 70%); animation: wake 4s ease-in forwards; }
+  @keyframes wake { 0% { opacity: 1; } 70% { opacity: 1; } 100% { opacity: 0; } }
   #flash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; z-index: 25; }
   #lostOv { background: radial-gradient(ellipse at center, rgba(40,20,10,.35), rgba(20,10,5,.85)); }
   #lostOv p, #flyOv p, #bunkerOv p { font-size: 17px; }
@@ -213,6 +215,7 @@
 <div id="banner" class="hidden"><div id="bannerDay">Day 1</div><div id="bannerSub"></div></div>
 <div id="radioOv" class="hidden"><div class="lbl">📻 SOLAR RADIO</div><div id="radioText"></div></div>
 <div id="flash"></div>
+<div id="sleepOv" class="overlay hidden"><div><div class="big">Zzz…</div><p>Everyone slept soundly through the night. The sun is coming up.</p></div></div>
 <div id="lostOv" class="overlay hidden"><div><div class="big">You didn't reach the bunker</div><p>The bomb wiped out the valley. Watch the others - a new story starts at nightfall.</p></div></div>
 <div id="flyOv" class="overlay hidden"><div><div class="big">Flying to the bunker…</div><p>Hold on tight.</p></div></div>
 <div id="bunkerOv" class="overlay hidden"><div><div class="big">Safe in the bunker</div><p>The ground shakes. Watch the TV. Stay inside for two hours until the fallout settles.</p></div></div>

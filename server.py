@@ -40,13 +40,17 @@ FINALE_TOD = 1080  # the story ends at 6 PM on day 5
 GROUND_ZERO = (20.0, -10.0)
 BONFIRE = (3.5, 28.0)              # big fire at the trailhead
 BUNKER_CANS = 24
+CAN_KINDS = {"stew": "beef stew", "spam": "fried Spam", "sausage": "sausage soup",
+             "beans": "pork & beans", "veg": "mixed vegetables"}
+CAN_ORDER = ["stew", "spam", "sausage", "beans", "veg"]
 
 CABIN_W, CABIN_D = 10.0, 8.0          # interior footprint (local x, local z)
 STOVE = (-3.2, -2.7)
 WOODBOX = (-4.0, 0.6)
 PANTRY = (3.9, -2.9)
 RADIO = (4.75, -0.9)
-DOOR = (0.0, 4.2)                     # middle of the doorway                  # solar radio on the right-hand wall
+DOOR = (0.0, 4.2)                     # middle of the doorway
+BED = (-2.8, 2.9)                  # solar radio on the right-hand wall
 CANDLES = [(1.5, 0.55), (2.5, 0.55), (4.62, 1.6)]
 WOODBOX_MAX = 12
 CARRY_MAX = 4
@@ -161,8 +165,9 @@ class Game:
         self.siren = False
         self.impact = False
         self.all_clear = False
-        self.bcans = BUNKER_CANS
+        self.bcans = [CAN_ORDER[i % 5] for i in range(BUNKER_CANS)]
         self.bonfire = 100.0
+        self.slept = 0.0
         self.burners = [{"pot": -1.0, "kind": ""} for _ in range(5)]
         self.cabins = []
         for i, (name, x, z, region) in enumerate(CABIN_SPECS):
@@ -170,7 +175,8 @@ class Game:
                 "i": i, "name": name, "x": x, "z": z, "region": region,
                 "rot": cabin_rot(x, z),
                 "fuel": 0.0, "wood": 2, "candles": [0.0, 0.0, 0.0],
-                "cans": 3, "pot": -1.0, "potKind": "", "door": True,   # doors start open
+                "cans": [random.choice(CAN_ORDER) for _ in range(3)],
+                "pot": -1.0, "potKind": "", "potLabel": "", "door": True,   # doors start open
             })
         rng = random.Random(self.seed + self.round_no)
         self.rng = rng
@@ -271,6 +277,7 @@ class Game:
         p["axe"] = None
         p["rod"] = None
         p["meat"] = 0
+        p["meats"] = []           # which animal each piece came from: "venison" / "rabbit"
         p["fish"] = 0
 
     def reset_player(self, p, spawn=False):
@@ -289,6 +296,7 @@ class Game:
         p["fly"] = 0.0
         p["hitCd"] = 0.0
         p["geiger"] = False
+        p["zz"] = False           # voted to sleep till dawn
         p["dose"] = 0.0
         p["saved"] = False
         if spawn:
@@ -352,7 +360,8 @@ class Game:
             p["freezes"] = p["logsIn"] = p["kills"] = p["catches"] = 0
         self.day = new_day
         for cab in self.cabins:
-            cab["cans"] = min(4, cab["cans"] + 2)        # supplies were left on the porch
+            while len(cab["cans"]) < 4:                  # supplies were left on the porch
+                cab["cans"].append(random.choice(CAN_ORDER))
         self.place_items()
         if self.day >= 2 and not self.animals:
             for _ in range(12):
@@ -360,6 +369,63 @@ class Game:
             for _ in range(14):
                 self.spawn_animal("rabbit")
         self.emit(DAY_INTRO[self.day])
+
+    # sleeping through the night ---------------------------------------------
+    def sleep_count(self):
+        act = [p for p in self.players.values() if not p["lost"]]
+        return sum(1 for p in act if p["zz"]), len(act)
+
+    def fuel_needed(self):
+        """Stove fuel a cabin burns from now until 6 AM (gale makes it burn faster)."""
+        m = self.minutes
+        left = max(0.0, DAWN - m)
+        gale = max(0.0, min(DAWN, GALE_END) - max(m, GALE_START)) if self.day < STORY_DAYS else 0.0
+        return left * 0.12 + gale * 0.16
+
+    def sleep_check(self):
+        """Everyone has to be inside a cabin whose stove (plus its woodbox) lasts till morning."""
+        need = self.fuel_needed()
+        for p in self.players.values():
+            if p["lost"]:
+                continue
+            ci = self.inside_cabin(p["x"], p["z"])
+            if ci < 0:
+                return False, "%s isn't inside a cabin." % p["name"]
+            cab = self.cabins[ci]
+            if cab["fuel"] <= 0:
+                return False, "The stove at %s isn't lit." % cab["name"]
+            have = cab["fuel"] + cab["wood"] * FUEL_PER_LOG
+            if have < need:
+                short = math.ceil((need - have) / FUEL_PER_LOG)
+                return False, "%s needs %d more log%s to last till morning." % (cab["name"], short, "s" if short > 1 else "")
+        return True, ""
+
+    def sleep_until_dawn(self):
+        need = self.fuel_needed()
+        occupied = {self.inside_cabin(p["x"], p["z"]) for p in self.players.values() if not p["lost"]}
+        for cab in self.cabins:
+            if cab["i"] in occupied:                     # the fire was fed from the woodbox all night
+                total = cab["fuel"] + cab["wood"] * FUEL_PER_LOG - need
+                cab["fuel"] = max(1.0, min(100.0, total))
+                cab["wood"] = max(0, int((total - cab["fuel"]) // FUEL_PER_LOG))
+            else:
+                cab["fuel"] = max(0.0, cab["fuel"] - need)
+            cab["candles"] = [0.0, 0.0, 0.0]
+            if cab["pot"] >= 0 and cab["potKind"]:
+                cab["pot"] = float(FOOD[cab["potKind"]][0])
+        nights = max(0.0, DAWN - self.minutes)
+        if self.day < STORY_DAYS and self.minutes < GALE_END:
+            self.bonfire = 0.0
+        for p in self.players.values():
+            if p["lost"]:
+                continue
+            p["zz"] = False
+            p["warmth"] = 100.0
+            p["frozen"] = 0.0
+            p["hunger"] = max(15.0, p["hunger"] - nights * 0.05)
+        self.t = 720.0 + (self.day - 1) * 1440.0       # 6 AM - the morning check runs next tick
+        self.slept = 4.0
+        self.emit("Everyone slept soundly through the night.")
 
     def gale_strength(self):
         if self.day >= STORY_DAYS or not self.is_night():
@@ -472,7 +538,10 @@ class Game:
             if an["hp"] <= 0:
                 del self.animals[an["id"]]
                 got = 2 if an["kind"] == "deer" else 1
-                p["meat"] = min(FOOD_MAX, p["meat"] + got)
+                for _ in range(got):
+                    if len(p["meats"]) < FOOD_MAX:
+                        p["meats"].append("venison" if an["kind"] == "deer" else "rabbit")
+                p["meat"] = len(p["meats"])
                 p["kills"] += 1
                 self.emit("%s hunted a %s (+%d meat)." % (p["name"], an["kind"], got))
             return
@@ -549,8 +618,8 @@ class Game:
         if a in ("bk_can", "bk_geiger", "bk_burner"):
             if not p["inB"]:
                 return
-            if a == "bk_can" and not p["can"] and self.bcans > 0:
-                self.bcans -= 1
+            if a == "bk_can" and not p["can"] and self.bcans:
+                p["canKind"] = self.bcans.pop()
                 p["can"] = 1
             elif a == "bk_geiger" and not p["geiger"]:
                 p["geiger"] = True
@@ -562,18 +631,30 @@ class Game:
                     return
                 if b["kind"] and b["pot"] >= FOOD[b["kind"]][0]:
                     _, food, warm, label = FOOD[b["kind"]]
+                    label = b.get("label") or label
                     b["pot"], b["kind"] = -1.0, ""
                     p["hunger"] = min(100.0, p["hunger"] + food)
                     p["warmth"] = min(100.0, p["warmth"] + warm)
                     self.emit("%s ate %s in the bunker." % (p["name"], label))
                 elif b["pot"] < 0 and self.pick_food(p, m.get("food")):
                     b["kind"] = self.pick_food(p, m.get("food"))
-                    self.use_food(p, b["kind"])
+                    b["label"], b["art"] = self.use_food(p, b["kind"])
                     b["pot"] = 0.0
             return
         try:
             cab = self.cabins[int(m.get("cabin"))]
         except (TypeError, ValueError, IndexError):
+            return
+        if a == "sleep" and self.near(p, cab, BED):
+            if not self.is_night() or self.day >= STORY_DAYS:
+                self.tell(p, {"t": "chat", "from": "Server", "color": "#9fb0c8", "text": "It's too early to sleep."})
+                return
+            p["zz"] = not p["zz"]
+            if p["zz"]:
+                ok, why = self.sleep_check()
+                self.emit("%s is ready to sleep (%d/%d)." % (p["name"], *self.sleep_count()))
+                if why:
+                    self.tell(p, {"t": "chat", "from": "Server", "color": "#9fb0c8", "text": why})
             return
         if a == "door" and self.near(p, cab, DOOR):
             cab["door"] = not cab["door"]
@@ -593,17 +674,18 @@ class Game:
             kind = cab["potKind"]
             if cab["pot"] >= 0 and kind and cab["pot"] >= FOOD[kind][0]:   # food is ready -> eat it
                 _, food, warm, label = FOOD[kind]
+                label = cab.get("potLabel") or label
                 cab["pot"], cab["potKind"] = -1.0, ""
                 p["hunger"] = min(100.0, p["hunger"] + food)
                 p["warmth"] = min(100.0, p["warmth"] + warm)
                 self.emit("%s ate %s at %s." % (p["name"], label, cab["name"]))
             elif cab["pot"] < 0 and cab["fuel"] > 0 and self.pick_food(p, m.get("food")):
                 cab["potKind"] = self.pick_food(p, m.get("food"))
-                self.use_food(p, cab["potKind"])
+                cab["potLabel"], cab["potArt"] = self.use_food(p, cab["potKind"])
                 cab["pot"] = 0.0
             elif cab["pot"] < 0 and p["can"]:            # stove is cold, but you can still set the can on
-                p["can"] = 0
                 cab["potKind"] = "stew"
+                cab["potLabel"], cab["potArt"] = self.use_food(p, "stew")
                 cab["pot"] = 0.0
             elif p["carry"] > 0 or cab["wood"] > 0:      # feed the fire
                 if cab["fuel"] > 100 - FUEL_PER_LOG * 0.5:
@@ -618,8 +700,8 @@ class Game:
                 if was_out:
                     self.emit("%s lit the stove at %s." % (p["name"], cab["name"]))
         elif a == "pantry" and self.near(p, cab, PANTRY):
-            if not p["can"] and cab["cans"] > 0:
-                cab["cans"] -= 1
+            if not p["can"] and cab["cans"]:
+                p["canKind"] = cab["cans"].pop()
                 p["can"] = 1
         elif a == "candle":
             try:
@@ -646,12 +728,17 @@ class Game:
 
     @staticmethod
     def use_food(p, kind):
+        """Use up the food; return (what it's called once hot, what it looks like on the plate)."""
         if kind == "meat":
-            p["meat"] -= 1
-        elif kind == "fish":
+            m = p["meats"].pop() if p["meats"] else "venison"
+            p["meat"] = len(p["meats"])
+            return ("roast rabbit" if m == "rabbit" else "roast venison"), m
+        if kind == "fish":
             p["fish"] -= 1
-        else:
-            p["can"] = 0
+            return FOOD["fish"][3], "fish"
+        p["can"] = 0
+        ck = p.get("canKind", "stew")
+        return "hot " + CAN_KINDS.get(ck, "stew"), "can:" + ck
 
     def radio_text(self, p):
         if self.day >= STORY_DAYS and self.siren and not self.impact:
@@ -690,6 +777,11 @@ class Game:
             n = max(1, min(STORY_DAYS, int(parts[1])))
             self.emit("%s skipped to day %d." % (p["name"], n))
             self.new_round(restart=True, day=n)
+        elif cmd == "/give":                     # handy for testing the cooking
+            p["meats"] = ["rabbit", "venison", "venison"]
+            p["meat"] = len(p["meats"])
+            p["fish"] = 2
+            self.emit("%s raided the freezer." % p["name"])
         elif cmd == "/skip":
             if self.day >= STORY_DAYS:
                 self.emit("%s restarted the story." % p["name"])
@@ -706,7 +798,7 @@ class Game:
                 self.emit("%s set the clock to %s." % (p["name"], parts[1]))
         else:
             self.tell(p, {"t": "chat", "from": "Server", "color": "#9fb0c8",
-                          "text": "Commands: /day 1-5, /skip, /time 9:00"})
+                          "text": "Commands: /day 1-5, /skip, /time 9:00, /give"})
 
     # -- simulation ----------------------------------------------------------
     def step(self, dt):
@@ -722,6 +814,18 @@ class Game:
         if nd > self.day and self.day < STORY_DAYS:
             self.morning(nd)
         self.summary_timer = max(0.0, self.summary_timer - dt)
+        self.slept = max(0.0, self.slept - dt)
+        votes, total = self.sleep_count()
+        if votes and self.is_night() and self.day < STORY_DAYS:
+            for p in self.players.values():                 # leaving the cabin cancels your vote
+                if p["zz"] and self.inside_cabin(p["x"], p["z"]) < 0:
+                    p["zz"] = False
+            votes, total = self.sleep_count()
+            if total and votes == total:
+                ok, why = self.sleep_check()
+                if ok:
+                    self.sleep_until_dawn()
+                    return
         if self.summary_timer <= 0 and self.phase == "play":
             self.summary = None
         gm = dt * DAWN / self.night_seconds     # simulation minutes this tick
@@ -999,10 +1103,11 @@ class Game:
                  "ry": round(p["ry"], 2), "w": round(p["warmth"], 1), "h": round(p["hunger"], 1),
                  "c": p["carry"], "can": p["can"], "f": round(p["frozen"], 1), "in": p["inside"],
                  "axe": 1 if p["axe"] else 0, "rod": 1 if p["rod"] else 0,
-                 "meat": p["meat"], "fish": p["fish"], "part": p["part"] or "",
+                 "meat": p["meat"], "mk": p["meats"][-1] if p["meats"] else "", "fish": p["fish"], "part": p["part"] or "",
                  "ft": round(p["fishT"], 1), "fh": p["fishHole"],
                  "kb": 1 if p["kb"] else 0, "inB": 1 if p["inB"] else 0,
                  "lost": 1 if p["lost"] else 0, "fly": round(p["fly"], 1),
+                 "ck": p.get("canKind", "stew"), "zz": 1 if p["zz"] else 0,
                  "gc": 1 if p["geiger"] else 0, "dose": round(p["dose"], 2)}
             if p.pop("teleport", False):
                 d["tp"] = 1
@@ -1016,7 +1121,8 @@ class Game:
             "players": players,
             "cabins": [{"fuel": round(c["fuel"], 1), "wood": c["wood"],
                         "candles": [1 if v > 0 else 0 for v in c["candles"]],
-                        "cans": c["cans"], "pot": round(c["pot"], 1), "pk": c["potKind"],
+                        "cans": len(c["cans"]), "cl": c["cans"], "pot": round(c["pot"], 1), "pk": c["potKind"],
+                        "art": c.get("potArt", "") if c["pot"] >= 0 else "",
                         "door": 1 if c["door"] else 0}
                        for c in self.cabins],
             "logs": [[l["id"], l["x"], l["z"], l["r"]] for l in self.logs.values()],
@@ -1025,9 +1131,10 @@ class Game:
                          round(a["spd"], 1)] for a in self.animals.values()],
             "heli": {"parts": h["parts"], "run": h["running"], "x": round(h["x"], 2),
                      "z": round(h["z"], 2), "fly": round(h["fly"], 2)},
-            "bonfire": round(self.bonfire, 1),
+            "bonfire": round(self.bonfire, 1), "slept": round(self.slept, 1),
+            "sleep": list(self.sleep_count()), "sleepWhy": self.sleep_check()[1] if any(q["zz"] for q in self.players.values()) else "",
             "siren": self.siren, "impact": self.impact, "bunker": self.bunker, "clear": self.all_clear,
-            "bk": {"cans": self.bcans, "burners": [[round(b["pot"], 1), b["kind"]] for b in self.burners]},
+            "bk": {"cans": len(self.bcans), "cl": self.bcans, "burners": [[round(b["pot"], 1), b["kind"], b.get("art", "") if b["pot"] >= 0 else ""] for b in self.burners]},
             "events": self.events,
             "summary": self.summary,
         }

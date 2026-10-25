@@ -40,9 +40,13 @@ After day 5 the story starts again from day 1.
 | **− / =** · **N** | volume down / up · mute (or use the slider) |
 | **T** | chat · **Tab** who's where · **M** big map |
 
+**Sleeping through the night:** press E at a cabin bed to vote. When every player has voted, is inside a cabin, and every occupied cabin's stove plus its woodbox has enough wood to last till 6 AM, everyone sleeps and wakes at dawn (the server tells you how many more logs are needed).
+
+**Food:** the pantries and bunker shelves hold labelled cans — beef stew, Spam, sausage soup, pork & beans and mixed vegetables. Venison, rabbit and trout cook on a metal plate and brown as they cook.
+
 Tips: walk up to a log and you pick it up automatically. Things you can pick up glow. A closed cabin door keeps the heat in. Warmth drains outdoors (much faster in the gale); a lit stove warms you, candles help a little. Freeze solid and you thaw out 10 seconds later by the strongest fire.
 
-**Host commands** (type in chat): `/day 1`–`/day 5` jump to a day, `/skip` jump to the next morning, `/time 9:00` set the clock.
+**Host commands** (type in chat): `/day 1`–`/day 5` jump to a day, `/skip` jump to the next morning, `/time 9:00` set the clock, `/give` hand yourself some meat and fish to test cooking.
 
 ## Files
 
