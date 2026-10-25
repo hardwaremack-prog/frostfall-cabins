@@ -5,7 +5,7 @@ import * as THREE from './three.module.min.js';
 // (must match server.py)
 const CABIN_W = 10, CABIN_D = 8;
 const STOVE = [-3.2, -2.7], WOODBOX = [-4.0, 0.6], PANTRY = [3.9, -2.9], RADIO = [4.75, -0.9];
-const CANDLES = [[1.5, 0.55, 1.27], [2.5, 0.55, 1.27], [4.2, 1.6, 1.55]];
+const CANDLES = [[1.5, 0.55, 1.27], [2.5, 0.55, 1.27], [4.62, 1.6, 1.63]];
 const WORLD = 640, SEGS = 192, CELL = WORLD / SEGS;
 const LAKE = { x: -222, z: -8, r: 40 };
 const SPAWN = { x: 0, z: 30 };
@@ -319,9 +319,13 @@ const glowSprite = () => glowTex('rgba(255,200,120,0.95)', 'rgba(255,140,50,0.35
 let GLOWTEX = null;
 
 function signTex(text) {
-  return canvasTex(512, 96, (g, w, h) => {
-    g.fillStyle = '#4b301c'; g.fillRect(0, 0, w, h); g.strokeStyle = '#2a190d'; g.lineWidth = 8; g.strokeRect(4, 4, w - 8, h - 8);
-    g.fillStyle = '#f3e3c3'; g.font = 'bold 54px Georgia, serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(text, w / 2, h / 2 + 3);
+  return canvasTex(1024, 190, (g, w, h) => {
+    g.fillStyle = '#5a3a20'; g.fillRect(0, 0, w, h); g.strokeStyle = '#2a190d'; g.lineWidth = 14; g.strokeRect(7, 7, w - 14, h - 14);
+    let fs = 120; g.font = `bold ${fs}px Georgia, serif`;
+    while (g.measureText(text).width > w - 80 && fs > 40) { fs -= 4; g.font = `bold ${fs}px Georgia, serif`; }
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillStyle = 'rgba(0,0,0,.5)'; g.fillText(text, w / 2 + 4, h / 2 + 10);
+    g.fillStyle = '#fff2d2'; g.fillText(text, w / 2, h / 2 + 6);
   });
 }
 
@@ -353,6 +357,11 @@ function buildCabin(c) {
   for (const s of [-1, 1]) {
     const roof = new THREE.Group(); roof.position.set(0, Y0 + H + rise / 2, s * span / 2); roof.rotation.x = s * 0.5; g.add(roof);
     const r1 = new THREE.Mesh(new THREE.BoxGeometry(CABIN_W + 1.8, 0.25, slabL), plank); roof.add(r1);
+    if (s === 1) {   // solar panel for the radio, sitting on top of the snow on the front roof
+      const frame = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.06, 1.1), new THREE.MeshLambertMaterial({ color: 0xa8adb5 })); frame.position.set(3.2, 0.37, -0.5); roof.add(frame);
+      const cells = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.03, 1.0), new THREE.MeshPhongMaterial({ color: 0x1b2a4a, specular: 0x8899cc, shininess: 70, emissive: 0x050a18 })); cells.position.set(3.2, 0.41, -0.5); roof.add(cells);
+      for (let k = 1; k < 4; k++) { const line = new THREE.Mesh(new THREE.BoxGeometry(0.015, 0.032, 1.0), new THREE.MeshLambertMaterial({ color: 0x8890a0 })); line.position.set(3.2 - 0.75 + k * 0.375, 0.415, -0.5); roof.add(line); }
+    }
     const r2 = new THREE.Mesh(new THREE.BoxGeometry(CABIN_W + 1.9, 0.22, slabL + 0.05), snowM); r2.position.y = 0.22; roof.add(r2);
   }
   // windows (both faces) on side walls + front right
@@ -403,8 +412,10 @@ function buildCabin(c) {
   box(0.45, 0.12, 0.9, new THREE.MeshLambertMaterial({ color: 0xece4d4 }), -3.6, Y0 + 0.52, 2.9);
   box(3.2, 0.02, 2.2, new THREE.MeshLambertMaterial({ color: 0x5b3a52 }), 0, Y0 + 0.01, 0.2);
   // name sign over door
-  const sign = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 0.64), (() => { const t = signTex(c.name); return new THREE.MeshLambertMaterial({ map: t, emissiveMap: t, emissive: 0xffffff, emissiveIntensity: 0.35 }); })());
-  sign.position.set(0, Y0 + H - 0.05, hd + T + 0.03); g.add(sign);
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 0.78), (() => { const t = signTex(c.name); return new THREE.MeshBasicMaterial({ map: t, color: 0xd8d0c0 }); })());
+  sign.position.set(0, Y0 + 2.6, hd + T + 0.04); g.add(sign);
+  const signLamp = new THREE.Sprite(new THREE.SpriteMaterial({ map: GLOWTEX, color: 0xffe0a0, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.55 }));
+  signLamp.scale.set(0.6, 0.6, 1); signLamp.position.set(0, Y0 + 3.1, hd + T + 0.3); g.add(signLamp);
   // interior light, beacon glow, chimney smoke
   c.light = new THREE.PointLight(0xff9a4a, 0, 15, 1); c.light.position.set(-1.6, Y0 + 2.2, -1.2); g.add(c.light);
   c.beacon = new THREE.Sprite(new THREE.SpriteMaterial({ map: GLOWTEX, transparent: true, depthWrite: false, fog: false, blending: THREE.AdditiveBlending, opacity: 0 }));
@@ -443,8 +454,6 @@ function buildCabin(c) {
   c.radioDial = new THREE.Mesh(new THREE.PlaneGeometry(0.22, 0.09), new THREE.MeshBasicMaterial({ color: 0x6b5a2a })); c.radioDial.position.set(0.15, 0.06, 0.101); radio.add(c.radioDial);
   const ant = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.6), dark); ant.position.set(0.25, 0.45, 0); ant.rotation.z = -0.3; radio.add(ant);
   const shelf = box(0.3, 0.05, 0.8, plank, RADIO[0] - 0.05, Y0 + 1.25, RADIO[1]);
-  const panel = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.06, 0.9), new THREE.MeshPhongMaterial({ color: 0x1b2a4a, specular: 0x8899cc, shininess: 60 }));
-  panel.position.set(3.2, Y0 + H + 1.25, 1.2); panel.rotation.x = 0.5; g.add(panel);
   // chopping block out front (an axe turns up here on day 2)
   const stump = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.48, 0.6, 10), new THREE.MeshLambertMaterial({ color: 0x6a4a30 }));
   stump.position.set(3.6, 0.3, 6.3); g.add(stump);
@@ -951,7 +960,7 @@ function showRadio(text) {
   el._iv = setInterval(() => { i += 2; $('radioText').textContent = text.slice(0, i); if (i >= text.length) clearInterval(el._iv); }, 30);
   clearTimeout(el._t); el._t = setTimeout(() => el.classList.add('hidden'), Math.max(9000, text.length * 75));
   staticBurst();
-  try { if (window.speechSynthesis) { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text.replace(/\.\.\./g, ', ')); u.rate = 1.02; u.pitch = 0.8; speechSynthesis.speak(u); } } catch (e) { /* no voice on this machine */ }
+  try { if (window.speechSynthesis) { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text.replace(/\.\.\./g, ', ')); u.rate = 1.02; u.pitch = 0.8; u.volume = volume; if (volume === 0) return; speechSynthesis.speak(u); } } catch (e) { /* no voice on this machine */ }
 }
 
 // sounds for the story
@@ -963,7 +972,7 @@ function sirenTick(dt) {
     const o = actx.createOscillator(), o2 = actx.createOscillator(), g = actx.createGain();
     o.type = 'sawtooth'; o2.type = 'square'; g.gain.value = 0;
     const f = actx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 1400;
-    o.connect(f); o2.connect(f); f.connect(g).connect(actx.destination); o.start(); o2.start();
+    o.connect(f); o2.connect(f); f.connect(g).connect(OUT()); o.start(); o2.start();
     sirenNodes = { o, o2, g, t: 0 };
   }
   if (sirenNodes) {
@@ -982,7 +991,7 @@ function noiseBurst(seconds, freq, vol) {
   const n = actx.sampleRate * seconds, b = actx.createBuffer(1, n, actx.sampleRate), d = b.getChannelData(0);
   for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 2);
   const s = actx.createBufferSource(); s.buffer = b; const f = actx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = freq;
-  const g = actx.createGain(); g.gain.value = vol; s.connect(f).connect(g).connect(actx.destination); s.start();
+  const g = actx.createGain(); g.gain.value = vol; s.connect(f).connect(g).connect(OUT()); s.start();
 }
 function staticBurst() { noiseBurst(0.6, 4000, 0.15); }
 function rumble() { noiseBurst(6, 120, 1.2); }
@@ -1150,6 +1159,9 @@ addEventListener('keydown', (e) => {
   if (e.code === 'KeyE') interact();
   if (e.code === 'KeyT' || e.code === 'Enter') { e.preventDefault(); openChat(); }
   if (e.code === 'KeyM') { bigMap = !bigMap; resizeMap(); }
+  if (e.code === 'Minus' || e.code === 'NumpadSubtract') setVolume(volume - 0.1, true);
+  if (e.code === 'Equal' || e.code === 'NumpadAdd') setVolume(volume + 0.1, true);
+  if (e.code === 'KeyN') { if (volume > 0) { lastVol = volume; setVolume(0, true); } else setVolume(lastVol || 0.7, true); }
   if (e.code === 'Tab') { e.preventDefault(); $('roster').classList.remove('hidden'); renderRoster(); }
 });
 addEventListener('keyup', (e) => { keys[e.code] = false; if (e.code === 'Tab') $('roster').classList.add('hidden'); });
@@ -1523,7 +1535,16 @@ function drawMap() {
 }
 
 // ------------------------------------------------------------------- audio
-let actx, windGain, windFilter, crackleGain;
+let actx, windGain, windFilter, crackleGain, master = null;
+let volume = (() => { const v = parseFloat(store('ffc.volume')); return isFinite(v) ? clamp(v, 0, 1) : 0.7; })();
+function OUT() { if (!master) { master = actx.createGain(); master.gain.value = volume * volume; master.connect(actx.destination); } return master; }
+function setVolume(v, show) {
+  volume = clamp(Math.round(v * 20) / 20, 0, 1); store('ffc.volume', String(volume));
+  if (master) master.gain.value = volume * volume;
+  $('volSlider').value = Math.round(volume * 100); $('volIcon').textContent = volume === 0 ? '🔇' : volume < 0.4 ? '🔈' : volume < 0.75 ? '🔉' : '🔊';
+  if (show) { const el = $('volWrap'); el.classList.add('flash'); clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove('flash'), 900); }
+}
+let lastVol = 0.7;
 function startAudio() {
   try {
     actx = new (window.AudioContext || window.webkitAudioContext)();
@@ -1532,8 +1553,8 @@ function startAudio() {
     const src = actx.createBufferSource(); src.buffer = buf; src.loop = true;
     windFilter = actx.createBiquadFilter(); windFilter.type = 'bandpass'; windFilter.frequency.value = 500; windFilter.Q.value = 0.6;
     windGain = actx.createGain(); windGain.gain.value = 0;
-    src.connect(windFilter).connect(windGain).connect(actx.destination); src.start();
-    crackleGain = actx.createGain(); crackleGain.gain.value = 0; crackleGain.connect(actx.destination);
+    src.connect(windFilter).connect(windGain).connect(OUT()); src.start();
+    crackleGain = actx.createGain(); crackleGain.gain.value = 0; crackleGain.connect(OUT());
   } catch (e) { actx = null; }
 }
 let crackleT = 0;
@@ -1552,7 +1573,7 @@ function audioTick(dt, t) {
     crackleT = 0.03 + Math.random() * 0.25;
     const n = actx.createBufferSource(), b = actx.createBuffer(1, 400, actx.sampleRate), dd = b.getChannelData(0);
     for (let i = 0; i < 400; i++) dd[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / 400, 3);
-    n.buffer = b; const gg = actx.createGain(); gg.gain.value = near * (0.08 + Math.random() * 0.18); n.connect(gg).connect(actx.destination); n.start();
+    n.buffer = b; const gg = actx.createGain(); gg.gain.value = near * (0.08 + Math.random() * 0.18); n.connect(gg).connect(OUT()); n.start();
   }
 }
 
@@ -1610,6 +1631,10 @@ function join() {
 $('go').addEventListener('click', join);
 $('nameIn').addEventListener('keydown', (e) => { if (e.key === 'Enter') join(); });
 if (qs.has('auto')) join();
+
+$('volSlider').addEventListener('input', (e) => setVolume(e.target.value / 100));
+$('volIcon').addEventListener('click', () => { if (volume > 0) { lastVol = volume; setVolume(0, true); } else setVolume(lastVol || 0.7, true); });
+setVolume(volume);
 
 // handy for testing / screenshots: window.ff.go(x, z, yaw, pitch)
 window.ff = { me, go(x, z, yaw = me.yaw, pitch = 0) { me.x = x; me.z = z; me.y = groundAt(x, z); me.yaw = yaw; me.pitch = pitch; }, cabins: () => cabins, send, state: () => S };

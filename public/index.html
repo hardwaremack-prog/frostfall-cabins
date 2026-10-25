@@ -140,6 +140,11 @@
   #lostOv p, #flyOv p, #bunkerOv p { font-size: 17px; }
   #flyOv { background: linear-gradient(180deg, rgba(10,20,30,.0), rgba(10,20,30,.35)); align-items: end; padding-bottom: 18vh; }
   #bunkerOv { background: rgba(20,16,8,.25); align-items: start; padding-top: 16vh; }
+  #volWrap { position: absolute; right: 14px; top: 264px; width: 250px; padding: 7px 12px; display: flex; align-items: center; gap: 10px; pointer-events: auto; transition: box-shadow .3s; }
+  #volWrap.flash { box-shadow: 0 0 0 2px var(--fire); }
+  #volIcon { cursor: pointer; font-size: 17px; width: 22px; text-align: center; user-select: none; }
+  #volSlider { flex: 1; accent-color: #ffb35c; cursor: pointer; }
+  #volWrap .hint { font-size: 11px; color: var(--dim); white-space: nowrap; }
   @media (max-width: 760px) { #cabins { width: 190px; } #clock { width: 200px; } #chat { width: 240px; } }
 </style>
 </head>
@@ -169,6 +174,7 @@
     <div class="keys">
       <kbd>WASD</kbd><span>walk &nbsp;·&nbsp; <kbd>Shift</kbd> run &nbsp;·&nbsp; <kbd>Space</kbd> jump</span>
       <kbd>E</kbd><span>use / pick up · <kbd>Click</kbd> swing the axe · <kbd>M</kbd> map</span>
+      <kbd>−</kbd><span><kbd>=</kbd> volume down / up · <kbd>N</kbd> mute (or use the slider)</span>
       <kbd>T</kbd><span>chat &nbsp;·&nbsp; <kbd>Tab</kbd> players &nbsp;·&nbsp; 4-day story: hunt, fish, fly, survive</span>
     </div>
   </div>
@@ -187,6 +193,7 @@
   </div>
   <div id="objPanel" class="panel"><div id="objDay">Day 1</div><div id="objList"></div><div id="inv" class="hidden"></div></div>
   <div id="cabins" class="panel"><h3>Cabins</h3><div id="cabList"></div></div>
+  <div id="volWrap" class="panel" title="Volume (- and = keys, N to mute)"><span id="volIcon">🔊</span><input id="volSlider" type="range" min="0" max="100" step="5" value="70"><span class="hint">− / = · N</span></div>
   <div id="toasts"></div>
   <div id="prompt" class="panel hidden"></div>
   <div id="chat"><div id="chatLog"></div><input id="chatIn" type="text" class="hidden" maxlength="120" placeholder="Say something… (Enter to send)"></div>
