@@ -13,25 +13,31 @@ One computer runs the server (a Raspberry Pi is plenty). Nothing to install — 
 
 The window prints an address like `http://192.168.1.42:8790`. Everyone opens that address in Chrome/Chromium on their own computer or Pi and picks a name and coat colour. The server computer can play too at `http://localhost:8790`.
 
-Options: `python3 server.py --minutes 20` for a longer night (default 12), `--port 9000` to change the port.
+Options: `python3 server.py --minutes 20` for a longer night (default 12), `--day 3` to start on day 3, `--port 9000` to change the port.
 
-## How to survive
+## The story (4 days)
+
+| Day | What happens |
+|---|---|
+| **1** | Spread out across the five cabins. Haul firewood, light the stoves, heat cans of stew, survive the **2:00 AM icy gale**. |
+| **2** | **Animals** roam the valley. An **axe** is stuck in the chopping block outside every cabin. Chase down deer and rabbits (they tire out), then cook the meat on a lit stove. |
+| **3** | **Fishing.** Rods are on the Frozen Lake dock (and at Old Mill and Hollow End). Fish through the ice holes, cook the catch. |
+| **4** | A broken **helicopter** sits on the pad between the Summit and Birch Glade. Race to bring its **battery** (Summit Lookout), **fuel can** (Old Mill) and **rotor blade** (Hollow End) and start it. At **10:30 PM the air-raid sirens** sound — get to the **solar radio** on a cabin wall to hear where the valley's **only bunker** is. The ICBM hits at 12:40 AM. Everyone in the bunker survives; a running helicopter can fly everyone nearby straight there. |
+
+After day 4 the story starts again from day 1.
+
+## Controls
 
 | Key | Does |
 |---|---|
 | WASD / arrows | walk · **Shift** run · **Space** jump |
 | Mouse | look (click the game to grab the mouse, Esc to free it) |
-| **E** | pick up logs · stack the woodbox · feed the stove · take a can · heat/eat stew · light candles |
+| **E** or **click** | pick up / use — logs, woodbox, stove, cans, candles, radio, axe, rods, ice holes, helicopter, bunker hatch. With an axe, click to swing. |
 | **T** | chat · **Tab** who's where · **M** big map |
 
-- Warmth drains outdoors, faster after midnight. Standing in a cabin with a lit stove warms you up; candles help a little more.
-- Every cabin starts with 2 logs in the woodbox. Fallen logs are scattered around the cabins and along the trails — carry up to 4 at a time.
-- Stew: grab a can from the pantry, set it on a lit stove, wait for it to heat, then eat it for food and a big warm-up.
-- **The gale (2:00–5:30 AM):** stoves burn twice as fast, no new logs blow in, and being outdoors will freeze you in about a minute. Stock the woodboxes before 2 AM!
-- Freeze solid and you thaw out 10 seconds later beside the strongest fire on the mountain (or the trailhead if every stove is out).
-- At dawn you get a scoreboard (logs hauled, times frozen, which cabins survived), and the next night starts on its own.
+Tips: things you can pick up glow. Warmth drains outdoors (much faster in the gale); a lit stove warms you, candles help a little. Freeze solid and you thaw out 10 seconds later by the strongest fire.
 
-Glowing windows, chimney smoke and the orange halo over a roof mean that cabin's fire is lit — you can see them through the storm. The red light on the summit radio mast helps you find north.
+**Host commands** (type in chat): `/day 1`–`/day 4` jump to a day, `/skip` next day, `/time 22:00` set the clock.
 
 ## Files
 

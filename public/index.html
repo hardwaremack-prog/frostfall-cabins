@@ -121,6 +121,25 @@
   #clickOv .card { padding: 18px 26px; }
   .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
 
+  #objPanel { position: absolute; top: 232px; left: 14px; width: 250px; padding: 10px 12px; }
+  #objDay { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--fire2); font-weight: 700; margin-bottom: 4px; }
+  .obj { display: flex; gap: 7px; font-size: 12.5px; color: var(--ink); padding: 2px 0; line-height: 1.3; }
+  .obj span { width: 12px; flex: none; color: var(--dim); }
+  .obj.done { color: var(--dim); text-decoration: line-through; }
+  .obj.done span { color: #7dffa0; text-decoration: none; }
+  #inv { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+  #inv span { font-size: 12px; padding: 2px 7px; border-radius: 10px; background: rgba(255,255,255,.1); }
+  #banner { position: fixed; left: 50%; top: 26%; transform: translateX(-50%); text-align: center; z-index: 12; pointer-events: none; transition: opacity .9s; text-shadow: 0 2px 18px #000, 0 0 4px #000; }
+  #bannerDay { font: 600 64px/1 Georgia, "DejaVu Serif", serif; color: var(--fire2); letter-spacing: .04em; }
+  #bannerSub { font-size: 19px; margin-top: 8px; }
+  #radioOv { position: fixed; left: 50%; bottom: 170px; transform: translateX(-50%); width: min(620px, 92vw); padding: 14px 16px; z-index: 13; pointer-events: none;
+    background: rgba(16,22,12,.86); border: 1px solid rgba(160,220,120,.35); border-radius: 10px; font: 15px/1.45 ui-monospace, "DejaVu Sans Mono", monospace; color: #c8f0a8; }
+  #radioOv .lbl { font-size: 11px; letter-spacing: .16em; color: #8fbf6a; margin-bottom: 6px; }
+  #flash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; z-index: 25; }
+  #lostOv { background: radial-gradient(ellipse at center, rgba(40,20,10,.35), rgba(20,10,5,.85)); }
+  #lostOv p, #flyOv p, #bunkerOv p { font-size: 17px; }
+  #flyOv { background: linear-gradient(180deg, rgba(10,20,30,.0), rgba(10,20,30,.35)); align-items: end; padding-bottom: 18vh; }
+  #bunkerOv { background: rgba(20,16,8,.25); align-items: start; padding-top: 16vh; }
   @media (max-width: 760px) { #cabins { width: 190px; } #clock { width: 200px; } #chat { width: 240px; } }
 </style>
 </head>
@@ -149,8 +168,8 @@
     <div id="joinErr"></div>
     <div class="keys">
       <kbd>WASD</kbd><span>walk &nbsp;·&nbsp; <kbd>Shift</kbd> run &nbsp;·&nbsp; <kbd>Space</kbd> jump</span>
-      <kbd>E</kbd><span>pick up logs, stack woodbox, feed stove, light candles, cans</span>
-      <kbd>T</kbd><span>chat &nbsp;·&nbsp; <kbd>Tab</kbd> players &nbsp;·&nbsp; <kbd>M</kbd> big map</span>
+      <kbd>E</kbd><span>use / pick up · <kbd>Click</kbd> swing the axe · <kbd>M</kbd> map</span>
+      <kbd>T</kbd><span>chat &nbsp;·&nbsp; <kbd>Tab</kbd> players &nbsp;·&nbsp; 4-day story: hunt, fish, fly, survive</span>
     </div>
   </div>
 </div>
@@ -166,6 +185,7 @@
     <div class="meter"><div class="lbl"><span>Hunger</span><span id="hungN">100</span></div><div class="bar"><i id="hungBar"></i></div></div>
     <div id="carry"><span>Logs</span><span class="logdot"></span><span class="logdot"></span><span class="logdot"></span><span class="logdot"></span><span id="canTag" class="hidden">Can</span></div>
   </div>
+  <div id="objPanel" class="panel"><div id="objDay">Day 1</div><div id="objList"></div><div id="inv" class="hidden"></div></div>
   <div id="cabins" class="panel"><h3>Cabins</h3><div id="cabList"></div></div>
   <div id="toasts"></div>
   <div id="prompt" class="panel hidden"></div>
@@ -175,6 +195,12 @@
 </div>
 
 <div id="clickOv" class="overlay hidden"><div class="card panel"><div style="font-size:18px;font-weight:600">Click to look around</div><div style="color:var(--dim);margin-top:4px">Esc frees the mouse</div></div></div>
+<div id="banner" class="hidden"><div id="bannerDay">Day 1</div><div id="bannerSub"></div></div>
+<div id="radioOv" class="hidden"><div class="lbl">📻 SOLAR RADIO</div><div id="radioText"></div></div>
+<div id="flash"></div>
+<div id="lostOv" class="overlay hidden"><div><div class="big">You didn't reach the bunker</div><p>The shockwave swept across the valley. Watch the others - a new story starts soon.</p></div></div>
+<div id="flyOv" class="overlay hidden"><div><div class="big">Flying to the bunker…</div><p>Hold on tight.</p></div></div>
+<div id="bunkerOv" class="overlay hidden"><div><div class="big">Safe in the bunker</div><p>The ground shakes. Dust falls from the ceiling. You made it.</p></div></div>
 <div id="frozenOv" class="overlay hidden"><div><div class="big">You froze solid</div><p id="frozenMsg">Thawing out…</p></div></div>
 <div id="dawnOv" class="overlay hidden"><div class="card panel" id="dawnCard"></div></div>
 

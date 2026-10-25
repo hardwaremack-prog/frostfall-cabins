@@ -4,7 +4,7 @@ import * as THREE from './three.module.min.js';
 // ------------------------------------------------------------------ layout
 // (must match server.py)
 const CABIN_W = 10, CABIN_D = 8;
-const STOVE = [-3.2, -2.7], WOODBOX = [-4.0, 0.6], PANTRY = [3.9, -2.9];
+const STOVE = [-3.2, -2.7], WOODBOX = [-4.0, 0.6], PANTRY = [3.9, -2.9], RADIO = [4.75, -0.9];
 const CANDLES = [[1.5, 0.55, 1.27], [2.5, 0.55, 1.27], [4.2, 1.6, 1.55]];
 const WORLD = 640, SEGS = 192, CELL = WORLD / SEGS;
 const LAKE = { x: -222, z: -8, r: 40 };
@@ -53,9 +53,11 @@ function heightFn(x, z) {
   let h = H1(x, z);
   for (const c of cabins) { const d = Math.hypot(x - c.x, z - c.z); if (d < 18) h = lerp(h, c.base, smooth(18, 9.5, d)); }
   const ds = Math.hypot(x - SPAWN.x, z - SPAWN.z); if (ds < 16) h = lerp(h, spawnBase, smooth(16, 6, ds));
+  for (const f of FLATS) { const d = Math.hypot(x - f.x, z - f.z); if (d < f.r) h = lerp(h, f.base, smooth(f.r, f.r * 0.55, d)); }
   return h;
 }
 let spawnBase = 0;
+let FLATS = [];   // helipad + bunker sites
 
 // mesh-exact ground sampling
 let grid = null;
@@ -92,7 +94,7 @@ function makeRenderer() {
   renderer.setSize(innerWidth, innerHeight, false);
   scene = new THREE.Scene();
   scene.fog = new THREE.FogExp2(0x0b1424, 0.006);
-  camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.1, 1400);
+  camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.1, 4200);
   scene.add(camera);
   addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight, false); });
 }
@@ -154,6 +156,8 @@ function buildWorld(world) {
   ICE_Y = H0(LAKE.x, LAKE.z) - 4;
   for (const c of cabins) c.base = H1(c.x, c.z);
   spawnBase = H1(SPAWN.x, SPAWN.z);
+  FLATS = [{ x: world.helipad[0], z: world.helipad[1], r: 16 }, ...world.bunkers.map(([x, z]) => ({ x, z, r: 9 }))];
+  for (const f of FLATS) f.base = H1(f.x, f.z);
 
   // sky dome
   const skyMat = new THREE.ShaderMaterial({
@@ -219,6 +223,7 @@ function buildWorld(world) {
   buildRocks();
   for (const c of cabins) buildCabin(c);
   buildLandmarks();
+  buildStory(world);
   buildSnow();
 
   // floating cabin tags
@@ -246,6 +251,7 @@ function buildTrees() {
     if (cabins.some((c) => Math.hypot(x - c.x, z - c.z) < 15)) continue;
     if (Math.hypot(x - SPAWN.x, z - SPAWN.z) < 15) continue;
     if (Math.hypot(x - LAKE.x, z - LAKE.z) < LAKE.r + 7) continue;
+    if (FLATS.some((f) => Math.hypot(x - f.x, z - f.z) < f.r + 2)) continue;
     const reg = regionAt(x, z), h = heightFn(x, z), n = vnoise(x * 0.03 + 11, z * 0.03);
     let p = { summit: 0.28, lake: 0.36, birch: 0.5, mill: 0.42, hollow: 0.9, meadow: 0.2 }[reg] + n * 0.25;
     if (h > 62) p *= 0.25;
@@ -285,7 +291,7 @@ function buildRocks() {
   const rnd = mulberry(SEED + 99), list = [];
   for (let i = 0; i < 260; i++) {
     const x = (rnd() - 0.5) * 560, z = (rnd() - 0.5) * 560, h = heightFn(x, z);
-    if (Math.hypot(x, z) > 300 || cabins.some((c) => Math.hypot(x - c.x, z - c.z) < 14)) continue;
+    if (Math.hypot(x, z) > 300 || cabins.some((c) => Math.hypot(x - c.x, z - c.z) < 14) || FLATS.some((f) => Math.hypot(x - f.x, z - f.z) < f.r + 2)) continue;
     if (h < 45 && rnd() > 0.15) continue;
     list.push([x, h, z, 0.6 + rnd() * 2.2, rnd() * 6]);
   }
@@ -430,8 +436,19 @@ function buildCabin(c) {
       w.scale.set(0.9, 0.9, 1); w.userData = { a: i * 0.7, r: 14 + (i * 7) % 18, y: 1.2 + (i % 3) * 0.6 }; scene.add(w); c.wisps.push(w);
     }
   }
-  // woodpile outside the door so the first fire is easy to start
-  for (let i = 0; i < 3; i++) { const l = new THREE.Mesh(logGeo, logM); l.rotation.y = Math.PI / 2; l.position.set(-2.2, 0.3 + 0.13 + i * 0.0, hd + 1.3 + i * 0.3); l.scale.set(1, 1, 1.4); g.add(l); }
+  // solar radio on the right-hand wall, with its little panel on the roof
+  const radio = new THREE.Group(); radio.position.set(RADIO[0], Y0 + 1.45, RADIO[1]); radio.rotation.y = -Math.PI / 2; g.add(radio);
+  const rbody = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.36, 0.2), new THREE.MeshLambertMaterial({ color: 0x3a3f36 })); radio.add(rbody);
+  const rgrill = new THREE.Mesh(new THREE.PlaneGeometry(0.26, 0.24), new THREE.MeshLambertMaterial({ color: 0x15171a })); rgrill.position.set(-0.13, 0, 0.101); radio.add(rgrill);
+  c.radioDial = new THREE.Mesh(new THREE.PlaneGeometry(0.22, 0.09), new THREE.MeshBasicMaterial({ color: 0x6b5a2a })); c.radioDial.position.set(0.15, 0.06, 0.101); radio.add(c.radioDial);
+  const ant = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.6), dark); ant.position.set(0.25, 0.45, 0); ant.rotation.z = -0.3; radio.add(ant);
+  const shelf = box(0.3, 0.05, 0.8, plank, RADIO[0] - 0.05, Y0 + 1.25, RADIO[1]);
+  const panel = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.06, 0.9), new THREE.MeshPhongMaterial({ color: 0x1b2a4a, specular: 0x8899cc, shininess: 60 }));
+  panel.position.set(3.2, Y0 + H + 1.25, 1.2); panel.rotation.x = 0.5; g.add(panel);
+  // chopping block out front (an axe turns up here on day 2)
+  const stump = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.48, 0.6, 10), new THREE.MeshLambertMaterial({ color: 0x6a4a30 }));
+  stump.position.set(3.6, 0.3, 6.3); g.add(stump);
+  const stumpTop = new THREE.Mesh(new THREE.CircleGeometry(0.42, 12), new THREE.MeshLambertMaterial({ color: 0xc9a77a })); stumpTop.rotation.x = -Math.PI / 2; stumpTop.position.set(3.6, 0.61, 6.3); g.add(stumpTop);
 }
 
 function makeSmoke(origin) {
@@ -499,19 +516,488 @@ const logMeshes = new Map();
 let logGeoW, logMatW, logRingMat;
 function syncLogs(list) {
   if (!logGeoW) {
-    logGeoW = new THREE.CylinderGeometry(0.2, 0.24, 1.6, 8).rotateZ(Math.PI / 2);
-    logMatW = new THREE.MeshLambertMaterial({ color: 0x7a5132, emissive: 0x24140a });
+    logGeoW = new THREE.CylinderGeometry(0.27, 0.31, 1.9, 9).rotateZ(Math.PI / 2);
+    logMatW = new THREE.MeshLambertMaterial({ color: 0xa8743f, emissive: 0x3a200c });
     logRingMat = new THREE.MeshBasicMaterial({ color: 0xffc070, transparent: true, opacity: 0.0, depthWrite: false });
   }
   const seen = new Set();
   for (const [id, x, z, r] of list) {
     seen.add(id);
     if (!logMeshes.has(id)) {
-      const m = new THREE.Mesh(logGeoW, logMatW); m.position.set(x, groundAt(x, z) + 0.22, z); m.rotation.y = r; scene.add(m);
+      const m = new THREE.Mesh(logGeoW, logMatW); m.position.set(x, groundAt(x, z) + 0.28, z); m.rotation.y = r; scene.add(m);
       m.userData = { id, x, z }; logMeshes.set(id, m);
     }
   }
   for (const [id, m] of logMeshes) if (!seen.has(id)) { scene.remove(m); logMeshes.delete(id); }
+}
+
+// ------------------------------------------------------------------- story
+// Day 2 axes + animals, day 3 rods + ice holes, day 4 helicopter, sirens, radio, bunker, missile.
+let WINFO = null;
+const itemMeshes = new Map();
+const animalMeshes = new Map();
+let heli = null, bunkerHatches = [], bunkerRoom = null, holeMeshes = [], missile = null, mushroom = null;
+let viewAxe = null, viewRod = null, swingT = 0, bobber = null;
+let lastDay = 0, impactSeen = false, shakeT = 0, sirenWasOn = false;
+const ROOM_DEPTH = 32;   // the shelter is this far under its hatch
+
+const PART_NAMES = { battery: 'battery', fuel: 'fuel can', rotor: 'rotor blade' };
+const PART_FROM = { battery: 'Summit Lookout', fuel: 'Old Mill', rotor: 'Hollow End' };
+const FOOD_NAMES = { stew: 'stew', meat: 'venison', fish: 'trout' };
+const FOOD_TIME = { stew: 20, meat: 25, fish: 15 };
+
+function std(color, extra) { return new THREE.MeshLambertMaterial({ color, ...(extra || {}) }); }
+
+function makeAxeMesh() {
+  const g = new THREE.Group();
+  const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.045, 0.85, 7), std(0x9a6b3e)); handle.position.y = 0.42; g.add(handle);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.13, 0.05), std(0x8d949e, { emissive: 0x111418 })); head.position.set(0.09, 0.8, 0); g.add(head);
+  const edge = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.16, 0.052), std(0xd6dde6, { emissive: 0x222222 })); edge.position.set(0.23, 0.8, 0); g.add(edge);
+  return g;
+}
+function makeRodMesh() {
+  const g = new THREE.Group();
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.03, 1.9, 6), std(0x2d3a2a)); pole.position.y = 0.95; g.add(pole);
+  const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.35, 8), std(0xb98b55)); grip.position.y = 0.2; g.add(grip);
+  const reel = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.05, 12), std(0xc0c4cc, { emissive: 0x222222 })); reel.rotation.z = Math.PI / 2; reel.position.set(0.05, 0.42, 0); g.add(reel);
+  return g;
+}
+function makePartMesh(kind) {
+  const g = new THREE.Group();
+  if (kind === 'battery') {
+    const b = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.36, 0.32), std(0x24262b)); b.position.y = 0.18; g.add(b);
+    const top = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.04, 0.32), std(0x3a6fd8)); top.position.y = 0.38; g.add(top);
+    for (const [x, c] of [[-0.15, 0xd9362b], [0.15, 0x111111]]) { const t = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.07, 8), std(c)); t.position.set(x, 0.43, 0); g.add(t); }
+  } else if (kind === 'fuel') {
+    const b = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.55, 0.2), std(0xc8261e)); b.position.y = 0.28; g.add(b);
+    const sp = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.05, 0.14, 8), std(0xd8b03a)); sp.position.set(0.12, 0.6, 0); sp.rotation.z = -0.5; g.add(sp);
+    const h = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.05, 0.06), std(0x8a1a14)); h.position.set(-0.05, 0.6, 0); g.add(h);
+  } else {
+    const blade = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.05, 0.3), std(0x2c3036)); blade.position.y = 0.12; g.add(blade);
+    const tip = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.052, 0.3), std(0xe8c23a)); tip.position.set(1.65, 0.12, 0); g.add(tip);
+    const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.12, 10), std(0x7a7f88)); hub.position.set(-1.8, 0.12, 0); g.add(hub);
+  }
+  return g;
+}
+
+function buildStory(world) {
+  WINFO = world;
+  // ice holes on the frozen lake
+  const holeM = new THREE.MeshBasicMaterial({ color: 0x08131f });
+  const rimM = std(0xf2f6fc);
+  for (const [x, z] of world.holes) {
+    const g = new THREE.Group(); g.position.set(x, ICE_Y + 0.04, z); scene.add(g);
+    const hole = new THREE.Mesh(new THREE.CircleGeometry(0.55, 18), holeM); hole.rotation.x = -Math.PI / 2; g.add(hole);
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.12, 5, 18), rimM); rim.rotation.x = -Math.PI / 2; g.add(rim);
+    g.visible = false; holeMeshes.push(g);
+  }
+  // rod rack on the land end of the dock
+  const lc = cabins.find((c) => c.region === 'lake');
+  if (lc) {
+    const ux = lc.x - LAKE.x, uz = lc.z - LAKE.z, d = Math.hypot(ux, uz), dx = ux / d, dz = uz / d;
+    const sx = LAKE.x + dx * (LAKE.r - 2) + dx * 6 - dx * 1.2, sz = LAKE.z + dz * (LAKE.r - 2) + dz * 6 - dz * 1.2;
+    const rack = new THREE.Group(); rack.position.set(sx, ICE_Y + 0.55, sz); rack.rotation.y = Math.atan2(dx, dz); scene.add(rack);
+    const wood = std(0x6b4a32);
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.08, 0.08), wood); bar.position.set(0, 1.3, -0.3); rack.add(bar);
+    for (const x of [-1.15, 1.15]) { const post = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.4, 0.1), wood); post.position.set(x, 0.7, -0.3); rack.add(post); }
+  }
+  // helipad + helicopter
+  const [hx, hz] = world.helipad, hb = heightFn(hx, hz);
+  const pad = new THREE.Mesh(new THREE.CylinderGeometry(7, 7, 0.3, 32), std(0x6d7076)); pad.position.set(hx, hb + 0.1, hz); scene.add(pad);
+  const hTex = canvasTex(256, 256, (g, w) => { g.fillStyle = '#6d7076'; g.fillRect(0, 0, w, w); g.strokeStyle = '#f1f1f1'; g.lineWidth = 14; g.beginPath(); g.arc(w / 2, w / 2, w / 2 - 14, 0, 7); g.stroke(); g.fillStyle = '#f1f1f1'; g.font = 'bold 150px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('H', w / 2, w / 2 + 8); });
+  const hMark = new THREE.Mesh(new THREE.CircleGeometry(6.6, 32), new THREE.MeshLambertMaterial({ map: hTex })); hMark.rotation.x = -Math.PI / 2; hMark.position.set(hx, hb + 0.26, hz); scene.add(hMark);
+  heli = buildHelicopter(); heli.g.position.set(hx, hb + 0.25, hz); heli.g.rotation.y = 0.6; heli.base = hb + 0.25; scene.add(heli.g);
+  // the bunker hatches (only the real one is shown) and the room beneath
+  for (const [bx, bz] of world.bunkers) {
+    const b = heightFn(bx, bz), g = new THREE.Group(); g.position.set(bx, b, bz); scene.add(g);
+    const slab = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.5, 3.6), std(0x8a8c88)); slab.position.y = 0.2; g.add(slab);
+    const lid = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.9, 0.16, 20), std(0x4f6b4a, { emissive: 0x0a0f0a })); lid.position.y = 0.52; g.add(lid);
+    const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.4, 0.05, 6, 16), std(0xb8a24a)); wheel.rotation.x = -Math.PI / 2; wheel.position.y = 0.64; g.add(wheel);
+    const vent = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 1.6, 10), std(0x6a6d70)); vent.position.set(1.4, 1.0, -1.4); g.add(vent);
+    const cap = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.3, 10), std(0x6a6d70)); cap.position.set(1.4, 1.9, -1.4); g.add(cap);
+    const signT = canvasTex(256, 256, (c, w) => { c.fillStyle = '#f2c230'; c.fillRect(0, 0, w, w); c.fillStyle = '#111'; c.beginPath(); c.arc(w / 2, w / 2, 26, 0, 7); c.fill();
+      for (let k = 0; k < 3; k++) { const a = k * 2.094 - 1.571; c.beginPath(); c.moveTo(w / 2, w / 2); c.arc(w / 2, w / 2, 100, a - 0.52, a + 0.52); c.closePath(); c.fill(); }
+      c.fillStyle = '#f2c230'; c.beginPath(); c.arc(w / 2, w / 2, 36, 0, 7); c.fill(); c.fillStyle = '#111'; c.beginPath(); c.arc(w / 2, w / 2, 24, 0, 7); c.fill(); });
+    const sign = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.9), new THREE.MeshLambertMaterial({ map: signT, emissive: 0x332200, side: THREE.DoubleSide }));
+    sign.position.set(0, 1.25, 1.85); g.add(sign);
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 1.2), std(0x555555)); post.position.set(0, 0.6, 1.83); g.add(post);
+    const beacon = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex('rgba(255,80,60,1)', 'rgba(255,30,20,0.3)'), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
+    beacon.scale.set(3, 3, 1); beacon.position.set(1.4, 2.2, -1.4); beacon.visible = false; g.add(beacon);
+    g.userData = { beacon, base: b, x: bx, z: bz };
+    g.visible = false; bunkerHatches.push(g);
+  }
+  bunkerRoom = buildBunkerRoom(); scene.add(bunkerRoom);
+  // the incoming missile and the far-off blast
+  missile = new THREE.Group();
+  const mGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex('rgba(255,255,230,1)', 'rgba(255,170,90,0.4)'), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
+  mGlow.scale.set(28, 28, 1); missile.add(mGlow);
+  const trailGeo = new THREE.BufferGeometry(); trailGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(60 * 3), 3));
+  missile.trail = new THREE.Line(trailGeo, new THREE.LineBasicMaterial({ color: 0xfff1d0, transparent: true, opacity: 0.7, fog: false }));
+  missile.trail.frustumCulled = false; scene.add(missile.trail);
+  missile.visible = false; missile.trail.visible = false; scene.add(missile);
+  mushroom = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex('rgba(255,240,200,1)', 'rgba(255,120,40,0.55)'), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false, opacity: 0 }));
+  mushroom.position.set(-500, 60, -2300); mushroom.scale.set(10, 10, 1); scene.add(mushroom);
+  // held tools
+  viewAxe = makeAxeMesh(); viewAxe.scale.setScalar(0.7); viewAxe.position.set(0.42, -0.62, -0.75); viewAxe.rotation.set(-0.2, -0.3, -0.25); viewAxe.visible = false; camera.add(viewAxe);
+  viewRod = makeRodMesh(); viewRod.scale.setScalar(0.85); viewRod.position.set(0.38, -0.7, -0.6); viewRod.rotation.set(-0.9, -0.2, -0.2); viewRod.visible = false; camera.add(viewRod);
+  bobber = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), std(0xe8392b, { emissive: 0x551010 })); bobber.visible = false; scene.add(bobber);
+}
+
+function buildHelicopter() {
+  const g = new THREE.Group();
+  const body = std(0x2f4f3a), dark = std(0x222428), glass = new THREE.MeshPhongMaterial({ color: 0x9fc6e6, specular: 0xffffff, shininess: 80, transparent: true, opacity: 0.55 });
+  const cab = new THREE.Mesh(new THREE.SphereGeometry(1.5, 16, 12), body); cab.scale.set(1, 0.9, 1.5); cab.position.y = 1.8; g.add(cab);
+  const win = new THREE.Mesh(new THREE.SphereGeometry(1.52, 16, 12, 0, Math.PI * 2, 0, 1.1), glass); win.scale.set(0.95, 0.85, 1.45); win.position.set(0, 1.9, -0.25); win.rotation.x = -1.1; g.add(win);
+  const boom = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.4, 5.5, 8), body); boom.rotation.x = Math.PI / 2; boom.position.set(0, 2.2, 4.4); g.add(boom);
+  const fin = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.3, 0.8), body); fin.position.set(0, 2.8, 7); g.add(fin);
+  const tail = new THREE.Group(); tail.position.set(0.18, 2.9, 7.1); g.add(tail);
+  for (let k = 0; k < 2; k++) { const b = new THREE.Mesh(new THREE.BoxGeometry(0.04, 1.2, 0.12), dark); b.rotation.x = k * Math.PI / 2; tail.add(b); }
+  for (const x of [-1.1, 1.1]) {
+    const skid = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 3.6, 6), dark); skid.rotation.x = Math.PI / 2; skid.position.set(x, 0.1, 0); g.add(skid);
+    for (const z of [-0.9, 0.9]) { const st = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.75, 5), dark); st.position.set(x * 0.85, 0.45, z); st.rotation.z = x > 0 ? -0.35 : 0.35; g.add(st); }
+  }
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, 0.6, 8), dark); mast.position.y = 3.35; g.add(mast);
+  const rotor = new THREE.Group(); rotor.position.y = 3.68; g.add(rotor);
+  const blades = [];
+  for (let k = 0; k < 4; k++) { const b = new THREE.Mesh(new THREE.BoxGeometry(5.2, 0.05, 0.32), dark); b.position.x = 2.6; const arm = new THREE.Group(); arm.rotation.y = k * Math.PI / 2; arm.add(b); rotor.add(arm); blades.push(arm); }
+  const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.25, 0.15, 10), dark); rotor.add(hub);
+  const lamp = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex('rgba(255,90,80,1)', 'rgba(255,40,30,0.3)'), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+  lamp.scale.set(1.6, 1.6, 1); lamp.position.set(0, 0.4, 0); lamp.visible = false; g.add(lamp);
+  return { g, rotor, tail, blades, lamp, spin: 0, alt: 0 };
+}
+
+function buildBunkerRoom() {
+  const g = new THREE.Group();
+  const concrete = new THREE.MeshLambertMaterial({ color: 0x8b8e8a, side: THREE.BackSide });
+  const shell = new THREE.Mesh(new THREE.BoxGeometry(9, 3.2, 7), concrete); shell.position.y = 1.6; g.add(shell);
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(9, 7), std(0x55585a)); floor.rotation.x = -Math.PI / 2; floor.position.y = 0.01; g.add(floor);
+  const steel = std(0x5d6a5a), mattress = std(0x7d8a6a);
+  for (const x of [-3.2, 3.2]) for (const y of [0.4, 1.5]) {
+    const f = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.1, 2.2), steel); f.position.set(x, y, -2.1); g.add(f);
+    const m = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.14, 2.0), mattress); m.position.set(x, y + 0.12, -2.1); g.add(m);
+  }
+  const shelf = new THREE.Mesh(new THREE.BoxGeometry(3, 1.8, 0.5), std(0x6a6d70)); shelf.position.set(0, 0.9, -3.2); g.add(shelf);
+  for (let k = 0; k < 12; k++) { const can = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.18, 8), std(k % 3 ? 0xc23b2b : 0x3a6fd8)); can.position.set(-1.3 + (k % 6) * 0.5, 0.75 + Math.floor(k / 6) * 0.6, -3.05); g.add(can); }
+  const ladder = new THREE.Group(); ladder.position.set(0, 0, 3.2); g.add(ladder);
+  for (const x of [-0.35, 0.35]) { const r = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 3.2), steel); r.position.set(x, 1.6, 0); ladder.add(r); }
+  for (let k = 0; k < 8; k++) { const r = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.7), steel); r.rotation.z = Math.PI / 2; r.position.set(0, 0.3 + k * 0.38, 0); ladder.add(r); }
+  const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 6), new THREE.MeshBasicMaterial({ color: 0xfff1c0 })); bulb.position.set(0, 3.0, 0); g.add(bulb);
+  const light = new THREE.PointLight(0xffe2a8, 0, 14, 1); light.position.set(0, 2.8, 0); g.add(light);
+  const sTex = canvasTex(512, 128, (c, w, h) => { c.fillStyle = '#f2c230'; c.fillRect(0, 0, w, h); c.fillStyle = '#111'; c.font = 'bold 64px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('FALLOUT SHELTER', w / 2, h / 2 + 4); });
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 0.6), new THREE.MeshBasicMaterial({ map: sTex })); sign.position.set(0, 2.5, -3.45); g.add(sign);
+  g.userData = { light, bulb };
+  g.visible = false;
+  return g;
+}
+
+function bunkerXZ() { if (!S || !WINFO) return null; return WINFO.bunkers[S.bunker] || null; }
+function roomFloor() { const b = bunkerXZ(); return b ? heightFn(b[0], b[1]) - ROOM_DEPTH : 0; }
+
+function syncItems(list) {
+  const seen = new Set();
+  for (const [id, kind, x, z] of list) {
+    seen.add(id);
+    let m = itemMeshes.get(id);
+    if (!m) {
+      m = new THREE.Group();
+      const model = kind === 'axe' ? makeAxeMesh() : kind === 'rod' ? makeRodMesh() : makePartMesh(kind);
+      m.add(model);
+      const gy = onIce(x, z) ? ICE_Y + 0.5 : groundAt(x, z);
+      if (kind === 'axe') { model.rotation.set(0, 0.6, -0.5); m.position.set(x, gy + 0.55, z); }
+      else if (kind === 'rod') { model.rotation.set(0.25, 0, 0); m.position.set(x, gy + 0.05, z); }
+      else m.position.set(x, gy, z);
+      const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: GLOWTEX || (GLOWTEX = glowSprite()), color: kind === 'axe' || kind === 'rod' ? 0xfff0b0 : 0x9fe8ff, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+      glow.scale.set(1.6, 1.6, 1); glow.position.y = 1.4; m.add(glow); m.userData = { id, kind, x, z, glow };
+      scene.add(m); itemMeshes.set(id, m);
+    }
+  }
+  for (const [id, m] of itemMeshes) if (!seen.has(id)) { scene.remove(m); itemMeshes.delete(id); }
+}
+
+function makeAnimalMesh(kind) {
+  const g = new THREE.Group(), legs = [];
+  if (kind === 'deer') {
+    const fur = std(0x8a5a34), belly = std(0xd8c0a0), dark = std(0x3a2618);
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.55, 1.3), fur); body.position.y = 1.05; g.add(body);
+    const rump = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.25, 0.08), belly); rump.position.set(0, 1.1, 0.68); g.add(rump);
+    const neck = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.6, 0.25), fur); neck.position.set(0, 1.45, -0.62); neck.rotation.x = 0.5; g.add(neck);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.24, 0.42), fur); head.position.set(0, 1.75, -0.86); g.add(head);
+    const nose = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.1, 0.06), dark); nose.position.set(0, 1.72, -1.08); g.add(nose);
+    for (const s of [-1, 1]) {
+      const ear = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.16, 0.1), fur); ear.position.set(s * 0.15, 1.9, -0.76); ear.rotation.z = s * 0.6; g.add(ear);
+      const ant = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.025, 0.45, 5), std(0xd8c8a8)); ant.position.set(s * 0.12, 2.05, -0.78); ant.rotation.z = s * 0.45; g.add(ant);
+      const tine = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.02, 0.22, 5), std(0xd8c8a8)); tine.position.set(s * 0.2, 2.12, -0.88); tine.rotation.set(-0.6, 0, s * 0.2); g.add(tine);
+    }
+    for (const [x, z] of [[-0.17, -0.5], [0.17, -0.5], [-0.17, 0.5], [0.17, 0.5]]) {
+      const leg = new THREE.Group(); leg.position.set(x, 0.8, z); g.add(leg);
+      const l = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.8, 0.09), fur); l.position.y = -0.4; leg.add(l);
+      const hoof = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.08, 0.11), dark); hoof.position.y = -0.8; leg.add(hoof);
+      legs.push(leg);
+    }
+  } else {
+    const fur = std(0xd9d4cc), pink = std(0xd8a0a0);
+    const body = new THREE.Mesh(new THREE.SphereGeometry(0.22, 10, 8), fur); body.scale.set(0.9, 0.85, 1.25); body.position.y = 0.24; g.add(body);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.13, 10, 8), fur); head.position.set(0, 0.4, -0.25); g.add(head);
+    for (const s of [-1, 1]) { const ear = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.22, 0.03), fur); ear.position.set(s * 0.05, 0.6, -0.22); ear.rotation.z = s * 0.15; g.add(ear);
+      const inner = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.16, 0.01), pink); inner.position.set(s * 0.05, 0.6, -0.235); g.add(inner); }
+    const tail = new THREE.Mesh(new THREE.SphereGeometry(0.07, 6, 5), std(0xffffff)); tail.position.set(0, 0.3, 0.27); g.add(tail);
+    for (const [x, z] of [[-0.1, -0.12], [0.1, -0.12], [-0.12, 0.15], [0.12, 0.15]]) { const leg = new THREE.Group(); leg.position.set(x, 0.12, z); const l = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.12, 0.12), fur); l.position.y = -0.06; leg.add(l); g.add(leg); legs.push(leg); }
+  }
+  scene.add(g);
+  return { g, legs, kind, t: null, hop: Math.random() * 6 };
+}
+
+function syncAnimals(list) {
+  const seen = new Set();
+  for (const [id, kind, x, z, ry, spd] of list) {
+    seen.add(id);
+    let a = animalMeshes.get(id);
+    if (!a) { a = makeAnimalMesh(kind); a.g.position.set(x, groundAt(x, z), z); a.g.rotation.y = ry + Math.PI; animalMeshes.set(id, a); }
+    a.t = { x, z, ry, spd };
+  }
+  for (const [id, a] of animalMeshes) if (!seen.has(id)) { scene.remove(a.g); animalMeshes.delete(id); }
+}
+
+function animateStory(dt, t) {
+  if (!S || !heli) return;
+  const k = 1 - Math.exp(-10 * dt);
+  // animals
+  for (const a of animalMeshes.values()) {
+    const p = a.t, g = a.g;
+    g.position.x = lerp(g.position.x, p.x, k); g.position.z = lerp(g.position.z, p.z, k);
+    let d = (p.ry + Math.PI) - g.rotation.y; d = Math.atan2(Math.sin(d), Math.cos(d)); g.rotation.y += d * k;
+    const moving = p.spd > 0.2;
+    a.hop += dt * (p.spd > 3 ? 14 : 7);
+    let y = groundAt(g.position.x, g.position.z);
+    if (a.kind === 'rabbit' && moving) y += Math.abs(Math.sin(a.hop)) * (p.spd > 3 ? 0.35 : 0.15);
+    g.position.y = y;
+    a.legs.forEach((l, i) => { l.rotation.x = moving ? Math.sin(a.hop + (i % 2 ? 0 : Math.PI) + (i > 1 ? 1.2 : 0)) * (p.spd > 3 ? 0.8 : 0.4) : 0; });
+  }
+  // items bob and glow
+  for (const m of itemMeshes.values()) { const gl = m.userData.glow; gl.material.opacity = 0.45 + Math.sin(t * 3 + m.position.x) * 0.25; gl.position.y = 1.3 + Math.sin(t * 2 + m.position.z) * 0.1; }
+  // ice holes from day 3
+  for (const h of holeMeshes) h.visible = S.day >= 3;
+  // helicopter
+  const H = S.heli, hp = heli.g.position;
+  const flying = H.fly > 0;
+  const hk = flying ? 1 - Math.exp(-25 * dt) : k;
+  hp.x = lerp(hp.x, H.x, hk); hp.z = lerp(hp.z, H.z, hk);
+  const targetAlt = flying ? Math.min(45, (8 - H.fly) * 18, H.fly * 18) : 0;
+  heli.alt = lerp(heli.alt, Math.max(0, targetAlt), Math.min(1, dt * 2));
+  hp.y = heightFn(hp.x, hp.z) + 0.25 + heli.alt;
+  const bxz = bunkerXZ();
+  if (flying && bxz) { const want = Math.atan2(-(bxz[0] - hp.x), -(bxz[1] - hp.z)); let d = want - heli.g.rotation.y; d = Math.atan2(Math.sin(d), Math.cos(d)); heli.g.rotation.y += d * Math.min(1, dt * 2); }
+  const spinTarget = H.run ? 26 : 0;
+  heli.spin = lerp(heli.spin, spinTarget, Math.min(1, dt * 0.8));
+  heli.rotor.rotation.y += heli.spin * dt; heli.tail.rotation.x += heli.spin * 1.6 * dt;
+  heli.blades.forEach((b) => (b.visible = H.parts[2]));
+  heli.lamp.visible = H.run && Math.sin(t * 6) > 0;
+  // bunker hatch + room
+  bunkerHatches.forEach((g, i) => {
+    g.visible = i === S.bunker;
+    const me2 = myState();
+    g.userData.beacon.visible = i === S.bunker && S.siren && me2 && me2.kb && Math.sin(t * 5) > 0;
+  });
+  if (bxz) {
+    bunkerRoom.position.set(bxz[0], roomFloor(), bxz[1]);
+    const p = myState(), inB = p && p.inB;
+    bunkerRoom.visible = !!inB;
+    const L = bunkerRoom.userData.light;
+    L.intensity = inB ? (S.impact && shakeT > 0 ? (Math.random() < 0.3 ? 0.2 : 2.2) : 2.2) : 0;
+  }
+  // missile on day 4 after the sirens
+  const W = WINFO;
+  if (S.day >= W.days && S.siren && !S.impact) {
+    const f = clamp((localM - W.sirenAt) / (W.impactAt - W.sirenAt), 0, 1);
+    const sx = 2000, sy = 2400, sz = -2600, ex = -500, ey = 0, ez = -2300;
+    const ef = f * f;   // it gathers speed as it comes down
+    missile.position.set(lerp(sx, ex, f), lerp(sy, ey, ef), lerp(sz, ez, f));
+    missile.visible = true; missile.trail.visible = true;
+    const arr = missile.trail.geometry.attributes.position.array;
+    for (let i = 0; i < 60; i++) {
+      const ff = Math.max(0, f - i * 0.006);
+      arr[i * 3] = lerp(sx, ex, ff); arr[i * 3 + 1] = lerp(sy, ey, ff * ff); arr[i * 3 + 2] = lerp(sz, ez, ff);
+    }
+    missile.trail.geometry.attributes.position.needsUpdate = true;
+  } else { missile.visible = false; missile.trail.visible = false; }
+  // impact
+  if (S.impact && !impactSeen) {
+    impactSeen = true; shakeT = 5;
+    const p = myState();
+    if (!(p && p.inB)) { const fl = $('flash'); fl.style.transition = 'none'; fl.style.opacity = 1; requestAnimationFrame(() => { fl.style.transition = 'opacity 3.5s ease-out'; fl.style.opacity = 0; }); }
+    rumble();
+  }
+  if (!S.impact) impactSeen = false;
+  if (S.impact) {
+    const m = mushroom.material; m.opacity = Math.min(1, m.opacity + dt * 0.5);
+    const s = Math.min(1400, mushroom.scale.x + dt * 160); mushroom.scale.set(s, s * 1.15, 1); mushroom.position.y = 150 + s * 0.42;
+  } else { mushroom.material.opacity = 0; mushroom.scale.set(10, 10, 1); }
+  // tools in hand
+  const p = myState();
+  const nearHole = p && p.rod && S.day >= 3 && WINFO.holes.some(([x, z]) => Math.hypot(x - me.x, z - me.z) < 5);
+  const fishing = p && p.ft > 0;
+  viewRod.visible = !!(p && p.rod && (nearHole || fishing) && !p.inB);
+  viewAxe.visible = !!(p && p.axe && !viewRod.visible && !p.inB && !(p.f > 0) && !p.lost);
+  swingT = Math.max(0, swingT - dt * 3.2);
+  const sw = Math.sin(swingT * Math.PI);
+  viewAxe.rotation.set(-0.2 - sw * 1.4, -0.3 + sw * 0.4, -0.25 - sw * 0.3);
+  viewAxe.position.set(0.4 - sw * 0.15, -0.66 + sw * 0.2, -0.7 - sw * 0.2);
+  viewRod.rotation.x = -0.9 + (fishing ? Math.sin(t * 2.5) * 0.04 - 0.2 : 0);
+  if (fishing && p.fh >= 0) { const [x, z] = WINFO.holes[p.fh]; bobber.visible = true; bobber.position.set(x, ICE_Y + 0.05 + Math.max(0, Math.sin(t * 7)) * (p.ft < 1.2 ? 0.15 : 0.02), z); }
+  else bobber.visible = false;
+  // camera shake after the blast
+  if (shakeT > 0) { shakeT -= dt; const s = shakeT * 0.02; camera.position.x += (Math.random() - 0.5) * s; camera.position.y += (Math.random() - 0.5) * s; }
+}
+
+function storyTargets(out) {
+  const p = myState(); if (!p || !S) return;
+  for (const m of itemMeshes.values()) {
+    const { id, kind, x, z } = m.userData;
+    if (Math.hypot(x - me.x, z - me.z) < 6) out.push({ kind: 'item', item: kind, id, x, z, y: m.position.y + 0.4 });
+  }
+  if (p.axe) for (const [id, a] of animalMeshes) {
+    const gp = a.g.position;
+    if (Math.hypot(gp.x - me.x, gp.z - me.z) < 5) out.push({ kind: 'animal', id, animal: a.kind, x: gp.x, z: gp.z, y: gp.y + (a.kind === 'deer' ? 1.1 : 0.25) });
+  }
+  if (S.day >= 3) WINFO.holes.forEach(([x, z], i) => { if (Math.hypot(x - me.x, z - me.z) < 4) out.push({ kind: 'hole', i, x, z, y: ICE_Y }); });
+  if (S.day >= 4 && heli) { const hp = heli.g.position; if (Math.hypot(hp.x - me.x, hp.z - me.z) < 7) out.push({ kind: 'heli', x: hp.x, z: hp.z, y: hp.y + 1.5, big: true }); }
+  const b = bunkerXZ();
+  if (b && (S.day >= 4 || p.inB)) {
+    if (p.inB) out.push({ kind: 'bunker', x: me.x, z: me.z + 3.2, y: me.y + 1.2, big: true });
+    else if (Math.hypot(b[0] - me.x, b[1] - me.z) < 4.5) out.push({ kind: 'bunker', x: b[0], z: b[1], y: heightFn(b[0], b[1]) + 0.6, big: true });
+  }
+}
+
+function storyPrompt(t, p) {
+  if (t.kind === 'item') {
+    if (t.item === 'axe') return p.axe ? [null, 'You already have an axe'] : ['E', 'Take the axe'];
+    if (t.item === 'rod') return p.rod ? [null, 'You already have a fishing rod'] : ['E', 'Take the fishing rod'];
+    return p.part ? [null, `Already carrying the ${PART_NAMES[p.part]}`] : ['E', `Pick up the helicopter ${PART_NAMES[t.item]}`];
+  }
+  if (t.kind === 'animal') return ['E', `Swing the axe at the ${t.animal}  (or click)`];
+  if (t.kind === 'hole') {
+    if (!p.rod) return [null, 'An ice hole. You need a fishing rod (Frozen Lake dock).'];
+    if (p.fh === t.i && p.ft > 0) return ['E', p.ft < 1.2 ? 'Something is biting…!' : 'Fishing… (E to reel in)'];
+    return p.fish >= 6 ? [null, 'Your bag is full of fish - go cook them'] : ['E', 'Drop a line and fish'];
+  }
+  if (t.kind === 'heli') {
+    const H = S.heli;
+    if (H.fly > 0) return [null, 'In flight…'];
+    if (p.part) return ['E', `Fit the ${PART_NAMES[p.part]}`];
+    if (!H.parts.every(Boolean)) {
+      const miss = ['battery', 'fuel', 'rotor'].filter((_, i) => !H.parts[i]).map((k) => `${PART_NAMES[k]} (${PART_FROM[k]})`);
+      return [null, 'Helicopter needs: ' + miss.join(', ')];
+    }
+    if (!H.run) return ['E', 'Start the engine'];
+    if (S.siren && !S.impact) return ['E', 'Fly everyone nearby to the bunker!'];
+    return [null, 'Engine running - stay close to a radio'];
+  }
+  if (t.kind === 'bunker') {
+    if (p.inB) return S.siren && !S.impact ? [null, 'Stay inside - the missile is coming!'] : ['E', 'Climb the ladder out'];
+    return ['E', 'Open the hatch and climb into the bunker'];
+  }
+  return null;
+}
+
+function storyInteract(t) {
+  if (t.kind === 'item') send({ t: 'act', a: 'item', id: t.id });
+  else if (t.kind === 'animal') { if (swingT < 0.5) { swingT = 1; chop(); } send({ t: 'act', a: 'hit', id: t.id }); }
+  else if (t.kind === 'hole') send({ t: 'act', a: 'fish', i: t.i });
+  else if (t.kind === 'heli') send({ t: 'act', a: 'heli' });
+  else if (t.kind === 'bunker') send({ t: 'act', a: 'bunker' });
+  else return false;
+  return true;
+}
+
+function storyHud(p) {
+  const d = S.day, W = WINFO, rows = [];
+  const tick = (ok, text) => rows.push(`<div class="obj${ok ? ' done' : ''}"><span>${ok ? '✓' : '•'}</span>${text}</div>`);
+  if (d === 1) tick(false, 'Keep the stoves lit through the 2 AM gale');
+  if (d >= 2 && d < 4) { tick(!!p.axe, 'Find an axe (chopping block outside each cabin)'); tick(false, 'Hunt deer or rabbits, cook the meat on a stove'); }
+  if (d === 3) { tick(!!p.rod, 'Find a fishing rod (Frozen Lake dock)'); tick(false, 'Fish at an ice hole on the lake, cook the fish'); }
+  if (d >= 4) {
+    const H = S.heli;
+    ['battery', 'fuel', 'rotor'].forEach((k, i) => tick(H.parts[i], `Helicopter ${PART_NAMES[k]} (${PART_FROM[k]})`));
+    tick(H.run, 'Get the helicopter running');
+    if (S.siren) {
+      tick(!!p.kb, 'Listen to a cabin\'s solar radio');
+      tick(!!p.inB, 'Get into the bunker' + (S.impact ? '' : ` - impact in ${fmtDur(W.impactAt - S.m)}`));
+    }
+  }
+  $('objList').innerHTML = rows.join('');
+  $('objDay').textContent = `Day ${d} of ${W.days}`;
+  const inv = [];
+  if (p.axe) inv.push('🪓 Axe'); if (p.rod) inv.push('🎣 Rod');
+  if (p.meat) inv.push(`🥩 ${p.meat} meat`); if (p.fish) inv.push(`🐟 ${p.fish} fish`);
+  if (p.part) inv.push(`🔧 ${PART_NAMES[p.part]}`);
+  $('inv').innerHTML = inv.map((s) => `<span>${s}</span>`).join('');
+  $('inv').classList.toggle('hidden', !inv.length);
+  $('lostOv').classList.toggle('hidden', !p.lost || S.phase === 'dawn');
+  $('flyOv').classList.toggle('hidden', !(p.fly > 0));
+  $('bunkerOv').classList.toggle('hidden', !(p.inB && S.impact) || S.phase === 'dawn');
+  // day banner
+  if (d !== lastDay) {
+    lastDay = d;
+    const sub = { 1: 'Keep the stoves lit through the 2 AM gale.', 2: 'Animals are out. Find an axe and hunt.', 3: 'The ice is thick. Find a rod and go fishing.', 4: 'Get the helicopter running. Stay near a radio.' }[d];
+    $('bannerDay').textContent = `Day ${d}`; $('bannerSub').textContent = sub;
+    const b = $('banner'); b.classList.remove('hidden'); b.style.opacity = 1;
+    clearTimeout(b._t); b._t = setTimeout(() => { b.style.opacity = 0; setTimeout(() => b.classList.add('hidden'), 900); }, 5500);
+  }
+}
+
+function showRadio(text) {
+  const el = $('radioOv'); $('radioText').textContent = ''; el.classList.remove('hidden');
+  let i = 0; clearInterval(el._iv);
+  el._iv = setInterval(() => { i += 2; $('radioText').textContent = text.slice(0, i); if (i >= text.length) clearInterval(el._iv); }, 30);
+  clearTimeout(el._t); el._t = setTimeout(() => el.classList.add('hidden'), Math.max(9000, text.length * 75));
+  staticBurst();
+  try { if (window.speechSynthesis) { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text.replace(/\.\.\./g, ', ')); u.rate = 1.02; u.pitch = 0.8; speechSynthesis.speak(u); } } catch (e) { /* no voice on this machine */ }
+}
+
+// sounds for the story
+let sirenNodes = null;
+function sirenTick(dt) {
+  if (!actx) return;
+  const on = S && S.siren && !S.impact;
+  if (on && !sirenNodes) {
+    const o = actx.createOscillator(), o2 = actx.createOscillator(), g = actx.createGain();
+    o.type = 'sawtooth'; o2.type = 'square'; g.gain.value = 0;
+    const f = actx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 1400;
+    o.connect(f); o2.connect(f); f.connect(g).connect(actx.destination); o.start(); o2.start();
+    sirenNodes = { o, o2, g, t: 0 };
+  }
+  if (sirenNodes) {
+    sirenNodes.t += dt;
+    const ph = (Math.sin(sirenNodes.t * 2 * Math.PI / 7) + 1) / 2;
+    const fq = 330 + ph * 560;
+    sirenNodes.o.frequency.value = fq; sirenNodes.o2.frequency.value = fq * 1.005;
+    const p = myState();
+    const target = on ? (p && p.inB ? 0.015 : insideAny() ? 0.05 : 0.09) : 0;
+    sirenNodes.g.gain.value += (target - sirenNodes.g.gain.value) * Math.min(1, dt * 2);
+    if (!on && sirenNodes.g.gain.value < 0.002) { sirenNodes.o.stop(); sirenNodes.o2.stop(); sirenNodes = null; }
+  }
+}
+function noiseBurst(seconds, freq, vol) {
+  if (!actx) return;
+  const n = actx.sampleRate * seconds, b = actx.createBuffer(1, n, actx.sampleRate), d = b.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 2);
+  const s = actx.createBufferSource(); s.buffer = b; const f = actx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = freq;
+  const g = actx.createGain(); g.gain.value = vol; s.connect(f).connect(g).connect(actx.destination); s.start();
+}
+function staticBurst() { noiseBurst(0.6, 4000, 0.15); }
+function rumble() { noiseBurst(6, 120, 1.2); }
+function chop() { noiseBurst(0.12, 1800, 0.35); }
+
+let hiSprite = null;
+function highlightTarget() {
+  if (!hiSprite) {
+    hiSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex('rgba(255,236,170,0.9)', 'rgba(255,200,90,0.25)'), transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending }));
+    hiSprite.renderOrder = 4; scene.add(hiSprite);
+  }
+  const t = target;
+  if (!t || t.big || t.kind === 'animal' || t.kind === 'item' || t.kind === 'stove' || t.kind === 'woodbox' || t.kind === 'pantry' || t.kind === 'candle' || t.kind === 'radio') { hiSprite.visible = false; return; }
+  hiSprite.visible = true; hiSprite.position.set(t.x, t.y + 0.35, t.z);
+  const s = 1.3 + Math.sin(clockU.value * 6) * 0.15; hiSprite.scale.set(s, s, 1);
 }
 
 // ------------------------------------------------------------------ avatars
@@ -596,6 +1082,7 @@ async function connect(name, color) {
       const m = JSON.parse(ev.data);
       if (m.t === 'state') onState(m);
       else if (m.t === 'chat') addChat(m.from, m.color, m.text);
+      else if (m.t === 'radio') showRadio(m.text);
     };
     $('joinErr').textContent = '';
     onWelcome(sock._welcome);
@@ -605,7 +1092,10 @@ async function connect(name, color) {
   $('joinErr').innerHTML = `Couldn't find a game server. Start <b>Frostfall Cabins Server</b> (start-windows.bat or start-pi.sh) and keep its window open. If it's on another computer, type the address from its window above, e.g. <b>10.0.0.80:${GAME_PORT}</b>.`;
   $('go').disabled = false;
 }
-function send(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
+function send(o) {
+  if (o.t === 'act') { o.x = +me.x.toFixed(2); o.z = +me.z.toFixed(2); o.y = +me.y.toFixed(2); }   // where I am right now, even on a slow frame
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify(o));
+}
 
 function onWelcome(m) {
   myId = m.id; world = m.world; nightSeconds = world.nightSeconds;
@@ -617,8 +1107,7 @@ function onWelcome(m) {
   $('join').classList.add('hidden'); $('hud').classList.remove('hidden');
   joined = true;
   buildCabinList();
-  toast('Find a cabin, haul firewood, and keep the stoves lit through the 2:00 AM gale.', 9000);
-  toast('Glowing windows and chimney smoke mean a fire is burning.', 9000);
+  toast('Glowing windows and chimney smoke mean a fire is burning. Logs glow when you can pick them up.', 9000);
   startAudio();
   if (!qs.has('auto')) $('clickOv').classList.remove('hidden');
   requestAnimationFrame(frame);
@@ -629,11 +1118,13 @@ function onState(m) {
   if (Math.abs(localM - m.m) > 1.5) localM = m.m;
   m.cabins.forEach((cs, i) => { if (cabins[i]) cabins[i].state = cs; });
   syncLogs(m.logs);
+  syncItems(m.items || []);
+  syncAnimals(m.animals || []);
   const ids = new Set();
   for (const p of m.players) {
     ids.add(p.id);
     if (p.id === myId) {
-      if (p.tp) { me.x = p.x; me.z = p.z; me.y = groundAt(p.x, p.z); me.vx = me.vz = me.vy = 0; }
+      if (p.tp) { me.x = p.x; me.z = p.z; me.y = p.inB ? roomFloor() : groundAt(p.x, p.z); me.vx = me.vz = me.vy = 0; }
       continue;
     }
     let a = avatars.get(p.id);
@@ -667,6 +1158,12 @@ function openChat() { chatting = true; const ci = $('chatIn'); ci.classList.remo
 function closeChat() { chatting = false; $('chatIn').classList.add('hidden'); $('chatIn').blur(); canvas.requestPointerLock?.(); }
 $('clickOv').addEventListener('click', () => canvas.requestPointerLock?.());
 canvas.addEventListener('click', () => { if (joined && !locked) canvas.requestPointerLock?.(); });
+canvas.addEventListener('mousedown', (e) => {
+  if (!joined || !locked || e.button !== 0) return;
+  const p = myState();
+  if (p && p.axe && viewAxe && viewAxe.visible && swingT <= 0) { swingT = 1; chop(); }
+  if (target) interact();
+});
 document.addEventListener('pointerlockchange', () => {
   locked = document.pointerLockElement === canvas;
   $('clickOv').classList.toggle('hidden', locked || chatting || qs.has('auto'));
@@ -684,23 +1181,26 @@ function interactTargets() {
   cabins.forEach((c, i) => {
     if (Math.hypot(me.x - c.x, me.z - c.z) > 12) return;
     const add = (kind, [lx, lz], y, extra) => { const [x, z] = toWorld(c, lx, lz); out.push({ kind, cabin: i, x, z, y: c.base + y, ...extra }); };
-    add('stove', STOVE, 1.2); add('woodbox', WOODBOX, 0.8); add('pantry', PANTRY, 1.3);
+    add('stove', STOVE, 1.2); add('woodbox', WOODBOX, 0.8); add('pantry', PANTRY, 1.3); add('radio', RADIO, 1.75);
     CANDLES.forEach((cd, k) => add('candle', cd, cd[2], { i: k }));
   });
+  storyTargets(out);
   return out;
 }
+const REACH = { log: 4.0, item: 3.6, animal: 4.0, hole: 3.0, heli: 6.5, bunker: 4.6, radio: 2.8 };
 function findTarget() {
   const fx = -Math.sin(me.yaw), fz = -Math.cos(me.yaw);
   const eye = me.y + 1.62, look = Math.sin(me.pitch);
   let best = null, bs = 1e9;
   for (const t of interactTargets()) {
     const dx = t.x - me.x, dz = t.z - me.z, d = Math.hypot(dx, dz);
-    const reach = t.kind === 'log' ? 3.2 : 2.9;
+    const reach = REACH[t.kind] || 2.9;
     if (d > reach) continue;
     const facing = d < 0.01 ? 1 : (dx * fx + dz * fz) / d;
-    if (facing < 0.35 && d > 1.2) continue;
-    const vert = Math.abs((t.y - eye) / Math.max(d, 0.6) - look * 1.2);
-    const s = d * 0.6 + (1 - facing) * 3 + vert * 0.8;
+    const close = t.kind === 'log' || t.kind === 'item' ? 2.0 : t.big ? 99 : 1.2;
+    if (facing < 0.3 && d > close) continue;
+    const vert = t.big ? 0 : Math.abs((t.y - eye) / Math.max(d, 0.6) - look * 1.2);
+    const s = d * 0.6 + (1 - facing) * 3 + Math.min(vert, 2) * 0.6 + (t.kind === 'animal' ? -1 : 0);
     if (s < bs) { bs = s; best = t; }
   }
   return best;
@@ -708,16 +1208,24 @@ function findTarget() {
 function myState() { return S ? S.players.find((p) => p.id === myId) : null; }
 function promptFor(t) {
   const p = myState(); if (!p || !t) return null;
-  if (t.kind === 'log') return p.c < 4 ? ['E', 'Pick up firewood'] : [null, 'Your arms are full (4 logs)'];
+  if (t.kind === 'log') return p.c < 4 ? ['E', 'Pick up firewood  (or click)'] : [null, 'Your arms are full (4 logs)'];
+  const sp = storyPrompt(t, p); if (sp) return sp;
   const cs = cabins[t.cabin].state; if (!cs) return null;
+  if (t.kind === 'radio') return ['E', S.siren && !S.impact ? 'LISTEN to the emergency broadcast!' : 'Listen to the solar radio'];
   if (t.kind === 'woodbox') return p.c > 0 ? ['E', `Stack ${Math.min(p.c, 12 - cs.wood)} log${p.c > 1 ? 's' : ''} in the woodbox (${cs.wood}/12)`] : cs.wood > 0 ? ['E', `Take a log (${cs.wood} stacked)`] : [null, 'Woodbox is empty'];
   if (t.kind === 'pantry') return p.can ? [null, 'Already holding a can'] : cs.cans > 0 ? ['E', `Take a can of stew (${cs.cans} left)`] : [null, 'Pantry is empty'];
   if (t.kind === 'candle') return cs.candles[t.i] ? ['E', 'Blow out candle'] : cs.fuel > 0 ? ['E', 'Light candle from the stove'] : [null, 'Light the stove first'];
   if (t.kind === 'stove') {
-    if (cs.pot >= 20) return ['E', 'Eat the hot stew'];
-    if (p.can && cs.pot < 0) return ['E', 'Set the can on the stove to heat'];
+    const pk = cs.pk || 'stew', need = FOOD_TIME[pk] || 20;
+    if (cs.pot >= need) return ['E', `Eat the hot ${FOOD_NAMES[pk]}`];
+    if (cs.pot < 0 && (p.meat || p.fish || p.can)) {
+      const what = p.meat ? 'venison' : p.fish ? 'trout' : 'the can of stew';
+      if (cs.fuel > 0) return ['E', `Cook ${what} on the stove`];
+      if (!p.meat && !p.fish) return ['E', 'Set the can on the stove (light it to heat)'];
+      if (!(p.c > 0 || cs.wood > 0)) return [null, `Light the stove to cook ${what} - bring firewood`];
+    }
     const src = p.c > 0 ? '' : cs.wood > 0 ? ' from the woodbox' : null;
-    const heat = cs.pot >= 0 ? `  ·  stew ${Math.round(cs.pot / 20 * 100)}%` : '';
+    const heat = cs.pot >= 0 ? `  ·  ${FOOD_NAMES[pk]} ${Math.round(cs.pot / need * 100)}%` : '';
     if (src !== null) {
       if (cs.fuel > 91) return [null, 'Stove is roaring — full' + heat];
       return ['E', (cs.fuel <= 0 ? 'Light the stove' : 'Add a log') + src + heat];
@@ -729,6 +1237,7 @@ function promptFor(t) {
 function interact() {
   const t = target; if (!t || !S) return;
   if (t.kind === 'log') send({ t: 'act', a: 'pickup', id: t.id });
+  else if (storyInteract(t)) return;
   else send({ t: 'act', a: t.kind, cabin: t.cabin, i: t.i });
 }
 
@@ -763,6 +1272,23 @@ function collide() {
 }
 
 function movePlayer(dt, frozen) {
+  const P = myState();
+  if (P && P.fly > 0) {            // riding the helicopter
+    me.vx = me.vz = me.vy = 0;
+    if (heli) { me.x = heli.g.position.x; me.z = heli.g.position.z; me.y = heli.g.position.y + 0.4; }
+    return;
+  }
+  if (P && P.lost) { me.vx = me.vz = 0; return; }
+  if (P && P.inB) {                // inside the shelter: walk around the room
+    const b = bunkerXZ(), fl = roomFloor();
+    let ix = 0, iz = 0;
+    if (!chatting) { if (keys.KeyW || keys.ArrowUp) iz -= 1; if (keys.KeyS || keys.ArrowDown) iz += 1; if (keys.KeyA || keys.ArrowLeft) ix -= 1; if (keys.KeyD || keys.ArrowRight) ix += 1; }
+    const l = Math.hypot(ix, iz) || 1, s = Math.sin(me.yaw), c = Math.cos(me.yaw);
+    me.x += ((ix * c + iz * s) / l) * 3.5 * dt; me.z += ((-ix * s + iz * c) / l) * 3.5 * dt;
+    if (b) { me.x = clamp(me.x, b[0] - 4, b[0] + 4); me.z = clamp(me.z, b[1] - 2.6, b[1] + 3); }
+    me.y = fl; me.vy = 0; me.onGround = true;
+    return;
+  }
   const ice = onIce(me.x, me.z);
   let ix = 0, iz = 0;
   if (!frozen && !chatting) {
@@ -796,6 +1322,8 @@ const SKY = {
   dusk: [C(0x29386a), C(0xd88a68)], night: [C(0x03060f), C(0x0e1a30)], dawn: [C(0x3d5d92), C(0xf0a47a)], gale: [C(0x4a5566), C(0x6f7b8c)],
 };
 const tmpA = new THREE.Color(), tmpB = new THREE.Color(), fogC = new THREE.Color();
+const SKY_BLAST_LO = new THREE.Color(0xff7a2a), SKY_BLAST_HI = new THREE.Color(0x6a2a1a);
+let impactAge = 0;
 function atmosphere(dt) {
   const m = localM, gale = S ? S.gale : 0;
   const dark = m < 150 ? smooth(0, 150, m) : m > 640 ? 1 - smooth(640, 720, m) * 0.8 : 1;
@@ -804,6 +1332,11 @@ function atmosphere(dt) {
   if (m > 640) { tmpA.lerp(SKY.dawn[0], dawnMix * 0.8); tmpB.lerp(SKY.dawn[1], dawnMix * 0.8); }
   const gn = 1 - dark * 0.55;
   tmpA.lerp(tmpC(SKY.gale[0], gn), gale); tmpB.lerp(tmpC(SKY.gale[1], gn), gale);
+  if (S && S.impact) {             // the far-off blast lights the sky, then fades
+    impactAge += dt; const glow = Math.max(0, 1 - impactAge / 120);
+    tmpB.lerp(SKY_BLAST_LO, 0.75 * glow); tmpA.lerp(SKY_BLAST_HI, 0.45 * glow);
+  } else impactAge = 0;
+  if (S && S.siren && !S.impact) tmpB.lerp(SKY_BLAST_LO, 0.08 + Math.max(0, Math.sin(clockU.value * 0.9)) * 0.06);
   sky.material.uniforms.top.value.copy(tmpA); sky.material.uniforms.bot.value.copy(tmpB);
   fogC.copy(tmpB).lerp(tmpA, 0.3);
   scene.fog.color.copy(fogC);
@@ -865,7 +1398,9 @@ function animateAvatars(dt, t) {
     g.children[0].position.y = 0.78 + (moving ? Math.abs(Math.sin(t * 9)) * 0.06 : 0);
     a.back.forEach((l, i) => (l.visible = i < p.c));
     a.coat.color.copy(a.base); if (p.f > 0) a.coat.color.lerp(C(0xcfe9ff), 0.85);
-    g.rotation.z = p.f > 0 ? 0.25 : 0;
+    g.rotation.z = p.f > 0 || p.lost ? 0.25 : 0;
+    const mine = myState();
+    g.visible = !!p.inB === !!(mine && mine.inB) && !(p.fly > 0);
   }
 }
 
@@ -880,7 +1415,14 @@ function updateHud() {
   const p = myState(); if (!p) return;
   $('clockT').textContent = fmtClock(localM);
   const ph = $('clockP');
-  if (S.phase === 'dawn') { ph.textContent = 'Dawn — the gale has passed'; ph.className = 'ph'; }
+  const finaleDay = S.day >= world.days;
+  $('galeBand').style.display = finaleDay ? 'none' : '';
+  if (S.phase === 'dawn') { ph.textContent = finaleDay ? 'The valley is silent' : 'Dawn — the gale has passed'; ph.className = 'ph'; }
+  else if (finaleDay) {
+    if (S.impact) { ph.textContent = 'After the blast'; ph.className = 'ph'; }
+    else if (S.siren) { ph.textContent = `AIR RAID · impact in ${fmtDur(world.impactAt - S.m)}`; ph.className = 'ph gale'; }
+    else { ph.textContent = 'No gale tonight · stay near a radio'; ph.className = 'ph'; }
+  }
   else if (S.m >= world.galeStart && S.m < world.galeEnd) { ph.textContent = `ICY GALE · ends in ${fmtDur(world.galeEnd - S.m)}`; ph.className = 'ph gale'; }
   else if (S.m < world.galeStart) { const left = world.galeStart - S.m; ph.textContent = `Gale arrives in ${fmtDur(left)}`; ph.className = left < 90 ? 'ph warn' : 'ph'; }
   else { ph.textContent = `Dawn in ${fmtDur(world.dawn - S.m)}`; ph.className = 'ph'; }
@@ -896,15 +1438,19 @@ function updateHud() {
     $('cabB' + i).style.width = cs.fuel + '%';
     $('cabM' + i).innerHTML = `${cs.fuel > 0 ? Math.round(cs.fuel) + '%' : 'cold'} · wood ${cs.wood}` + (here.length ? `<span class="pips">${here.map((q) => `<b style="background:${q.color}"></b>`).join('')}</span>` : '');
   });
+  storyHud(p);
   $('frozenOv').classList.toggle('hidden', !(p.f > 0));
   if (p.f > 0) $('frozenMsg').textContent = `Thawing out by the nearest fire in ${Math.ceil(p.f)}…`;
   const dov = $('dawnOv');
   if (S.phase === 'dawn' && S.summary) {
     dov.classList.remove('hidden');
     const s = S.summary;
-    $('dawnCard').innerHTML = `<div class="big">Dawn breaks</div><div style="color:var(--dim);margin-top:6px">${s.litCabins.length} of 5 cabins still burning${s.litCabins.length ? ': ' + s.litCabins.join(', ') : ''}</div>
-      <table><tr><th></th><th>Hiker</th><th>Logs hauled</th><th>Times frozen</th></tr>${s.players.map((r, i) => `<tr><td>${i === 0 ? '★' : ''}</td><td><span class="dot" style="background:${r.color}"></span>${esc(r.name)}</td><td>${r.logs}</td><td>${r.freezes}</td></tr>`).join('')}</table>
-      <div style="color:var(--dim);margin-top:12px">Next night begins in ${Math.ceil(S.dawnIn)}s</div>`;
+    const head = s.finale
+      ? `<div class="big">${s.saved.length ? 'You survived' : 'The valley is silent'}</div><div style="color:var(--dim);margin-top:6px">${s.saved.length} of ${s.players.length} made it into the bunker${s.saved.length ? ': ' + s.saved.map(esc).join(', ') : ''}.</div>`
+      : `<div class="big">Dawn breaks on day ${s.day}</div><div style="color:var(--dim);margin-top:6px">${s.litCabins.length} of 5 cabins still burning${s.litCabins.length ? ': ' + s.litCabins.join(', ') : ''}</div>`;
+    $('dawnCard').innerHTML = `${head}
+      <table><tr><th></th><th>Hiker</th>${s.finale ? '<th>Bunker</th>' : ''}<th>Logs</th><th>Hunted</th><th>Fish</th><th>Frozen</th></tr>${s.players.map((r, i) => `<tr><td>${i === 0 ? '★' : ''}</td><td><span class="dot" style="background:${r.color}"></span>${esc(r.name)}</td>${s.finale ? `<td>${r.saved ? '✓' : '✗'}</td>` : ''}<td>${r.logs}</td><td>${r.kills}</td><td>${r.catches}</td><td>${r.freezes}</td></tr>`).join('')}</table>
+      <div style="color:var(--dim);margin-top:12px">${s.finale ? 'A new story begins on Day 1' : `Day ${s.day + 1} begins`} in ${Math.ceil(S.dawnIn)}s</div>`;
   } else dov.classList.add('hidden');
 }
 function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
@@ -925,7 +1471,8 @@ function addChat(from, color, text) {
 
 const proj = new THREE.Vector3();
 function updateTags() {
-  const inside = insideAny();
+  const mineP = myState();
+  const inside = insideAny() || (mineP && (mineP.inB || mineP.lost));
   cabins.forEach((c, i) => {
     const el = cabinTags[i], d = Math.hypot(c.x - me.x, c.z - me.z);
     proj.set(c.x, c.base + 8, c.z).project(camera);
@@ -955,6 +1502,22 @@ function drawMap() {
     if (bigMap) { g.fillStyle = '#dfe7f3'; g.font = '13px system-ui, sans-serif'; g.textAlign = 'center'; g.fillText(c.name, X(c.x), Z(c.z) - 10); }
   }
   g.fillStyle = '#f3e3c3'; g.fillRect(X(SPAWN.x) - 2, Z(SPAWN.z) - 2, 4, 4);
+  if (S && WINFO) {
+    const me2 = myState();
+    if (S.day >= 3) { g.fillStyle = '#0b1a2a'; for (const [x, z] of WINFO.holes) { g.beginPath(); g.arc(X(x), Z(z), bigMap ? 3 : 1.6, 0, 7); g.fill(); } }
+    for (const m of itemMeshes.values()) { const { kind, x, z } = m.userData; g.fillStyle = kind === 'axe' || kind === 'rod' ? '#ffe9a0' : '#7fe0ff'; g.fillRect(X(x) - 2, Z(z) - 2, 4, 4); }
+    if (S.day >= 4) {
+      const H = S.heli; g.fillStyle = H.run ? '#7dffa0' : '#c9d3e0'; g.font = `bold ${bigMap ? 16 : 11}px system-ui, sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('H', X(H.x), Z(H.z));
+    }
+    const b = bunkerXZ();
+    if (b && me2 && (me2.kb || me2.inB)) {
+      const pulse = 5 + Math.sin(clockU.value * 5) * 2;
+      g.strokeStyle = '#ff5a4a'; g.lineWidth = 2; g.beginPath(); g.arc(X(b[0]), Z(b[1]), pulse * (bigMap ? 1.6 : 1), 0, 7); g.stroke();
+      g.fillStyle = '#f2c230'; g.beginPath(); g.arc(X(b[0]), Z(b[1]), bigMap ? 4 : 2.5, 0, 7); g.fill();
+      if (bigMap) { g.fillStyle = '#ffd27a'; g.font = '13px system-ui, sans-serif'; g.textBaseline = 'alphabetic'; g.fillText('BUNKER', X(b[0]), Z(b[1]) - 12); }
+    }
+    if (bigMap) for (const a of animalMeshes.values()) { g.fillStyle = a.kind === 'deer' ? '#c08a5a' : '#e8e2d8'; g.fillRect(X(a.g.position.x) - 1.5, Z(a.g.position.z) - 1.5, 3, 3); }
+  }
   if (S) for (const p of S.players) { if (p.id === myId) continue; g.fillStyle = p.color; g.beginPath(); g.arc(X(p.x), Z(p.z), bigMap ? 5 : 3.5, 0, 7); g.fill(); }
   g.save(); g.translate(X(me.x), Z(me.z)); g.rotate(-me.yaw); g.fillStyle = '#fff'; g.beginPath(); g.moveTo(0, -7); g.lineTo(4.5, 5); g.lineTo(0, 2.5); g.lineTo(-4.5, 5); g.closePath(); g.fill(); g.restore();
 }
@@ -1002,6 +1565,7 @@ function frame(now) {
   if (S && S.phase === 'night') localM += dt * 720 / nightSeconds;
   const p = myState(), frozen = p && p.f > 0;
   movePlayer(dt, frozen);
+  if (p && p.inB && Math.abs(me.y - roomFloor()) > 1) me.y = roomFloor();
   const bob = me.onGround && (Math.abs(me.vx) + Math.abs(me.vz) > 1) ? Math.sin(clockU.value * 10) * 0.04 : 0;
   camera.position.set(me.x, me.y + (frozen ? 0.6 : 1.62) + bob, me.z);
   camera.rotation.set(me.pitch, me.yaw, frozen ? 0.4 : 0, 'YXZ');
@@ -1013,10 +1577,13 @@ function frame(now) {
   atmosphere(dt);
   animateCabins(clockU.value);
   animateAvatars(dt, clockU.value);
+  animateStory(dt, clockU.value);
+  highlightTarget();
   updateTags();
   if ((frameN++ & 3) === 0) { drawMap(); if (!$('roster').classList.contains('hidden')) renderRoster(); }
   if (S) $('clockT').textContent = fmtClock(localM);
   audioTick(dt, clockU.value);
+  sirenTick(dt);
   renderer.render(scene, camera);
 }
 let frameN = 0;
