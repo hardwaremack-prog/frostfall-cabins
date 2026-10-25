@@ -32,7 +32,7 @@ After day 4 the story starts again from day 1.
 |---|---|
 | WASD / arrows | walk · **Shift** run · **Space** jump |
 | Mouse | look (click the game to grab the mouse, Esc to free it) |
-| **E** or **click** | pick up / use — logs, woodbox, stove, cans, candles, radio, axe, rods, ice holes, helicopter, bunker hatch. With an axe, click to swing. |
+| **E** or **click** | pick up / use — doors, logs, woodbox, stove, cans, candles, radio, axe, rods, ice holes, helicopter, bunker hatch. With an axe, click to swing. |
 | **T** | chat · **Tab** who's where · **M** big map |
 
 Tips: things you can pick up glow. Warmth drains outdoors (much faster in the gale); a lit stove warms you, candles help a little. Freeze solid and you thaw out 10 seconds later by the strongest fire.
