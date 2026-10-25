@@ -115,6 +115,8 @@
   #frozenOv p { font-size: 17px; }
   #dawnOv { background: linear-gradient(180deg, rgba(40,30,60,.55), rgba(240,160,110,.45)); }
   #dawnOv .card { padding: 22px 26px; min-width: 360px; pointer-events: auto; }
+  #dawnOv.soft { background: none; align-items: start; padding-top: 9vh; }
+  #dawnOv.soft .card { pointer-events: none; transform: scale(.88); }
   #dawnOv table { margin: 12px auto 0; border-collapse: collapse; }
   #dawnOv td { padding: 4px 10px; text-align: left; }
   #clickOv { background: rgba(5,8,15,.35); pointer-events: auto; cursor: pointer; }
@@ -145,6 +147,11 @@
   #volIcon { cursor: pointer; font-size: 17px; width: 22px; text-align: center; user-select: none; }
   #volSlider { flex: 1; accent-color: #ffb35c; cursor: pointer; }
   #volWrap .hint { font-size: 11px; color: var(--dim); white-space: nowrap; }
+  #geiger { position: absolute; right: 14px; top: 314px; width: 250px; padding: 9px 12px; display: flex; align-items: center; gap: 10px; font: 13px ui-monospace, "DejaVu Sans Mono", monospace; }
+  #geiger .ico { font-size: 22px; color: #e8c23a; }
+  #geiger b { display: block; font-size: 16px; color: #c8f0a8; }
+  #geiger.hot b { color: #ff6b5e; }
+  #geiger span { color: var(--dim); font-size: 12px; }
   @media (max-width: 760px) { #cabins { width: 190px; } #clock { width: 200px; } #chat { width: 240px; } }
 </style>
 </head>
@@ -193,6 +200,7 @@
   </div>
   <div id="objPanel" class="panel"><div id="objDay">Day 1</div><div id="objList"></div><div id="inv" class="hidden"></div></div>
   <div id="cabins" class="panel"><h3>Cabins</h3><div id="cabList"></div></div>
+  <div id="geiger" class="panel hidden"><div class="ico">☢</div><div><b id="geigerRate">0.00 mSv/h</b><span id="geigerDose">dose 0.0 mSv</span></div></div>
   <div id="volWrap" class="panel" title="Volume (- and = keys, N to mute)"><span id="volIcon">🔊</span><input id="volSlider" type="range" min="0" max="100" step="5" value="70"><span class="hint">− / = · N</span></div>
   <div id="toasts"></div>
   <div id="prompt" class="panel hidden"></div>
@@ -205,9 +213,9 @@
 <div id="banner" class="hidden"><div id="bannerDay">Day 1</div><div id="bannerSub"></div></div>
 <div id="radioOv" class="hidden"><div class="lbl">📻 SOLAR RADIO</div><div id="radioText"></div></div>
 <div id="flash"></div>
-<div id="lostOv" class="overlay hidden"><div><div class="big">You didn't reach the bunker</div><p>The shockwave swept across the valley. Watch the others - a new story starts soon.</p></div></div>
+<div id="lostOv" class="overlay hidden"><div><div class="big">You didn't reach the bunker</div><p>The bomb wiped out the valley. Watch the others - a new story starts at nightfall.</p></div></div>
 <div id="flyOv" class="overlay hidden"><div><div class="big">Flying to the bunker…</div><p>Hold on tight.</p></div></div>
-<div id="bunkerOv" class="overlay hidden"><div><div class="big">Safe in the bunker</div><p>The ground shakes. Dust falls from the ceiling. You made it.</p></div></div>
+<div id="bunkerOv" class="overlay hidden"><div><div class="big">Safe in the bunker</div><p>The ground shakes. Watch the TV. Stay inside for two hours until the fallout settles.</p></div></div>
 <div id="frozenOv" class="overlay hidden"><div><div class="big">You froze solid</div><p id="frozenMsg">Thawing out…</p></div></div>
 <div id="dawnOv" class="overlay hidden"><div class="card panel" id="dawnCard"></div></div>
 

@@ -32,10 +32,14 @@ WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 GALE_START = 480   # 02:00
 GALE_END = 690     # 05:30
 DAWN = 720
-STORY_DAYS = 4
-SIREN_AT = 270     # day 4: 10:30 PM air-raid sirens
-IMPACT_AT = 400    # day 4: 12:40 AM missile impact
-FINALE_END = 430   # day 4 ends shortly after impact
+STORY_DAYS = 5
+SIREN_TOD = 540    # day 5: 9:00 AM air-raid sirens (minutes past midnight)
+IMPACT_TOD = 633   # day 5: 10:33 AM the bomb hits the valley
+HATCH_TOD = 753    # 2 hours later the fallout has settled enough to go out
+FINALE_TOD = 1080  # the story ends at 6 PM on day 5
+GROUND_ZERO = (20.0, -10.0)
+BONFIRE = (3.5, 28.0)              # big fire at the trailhead
+BUNKER_CANS = 24
 
 CABIN_W, CABIN_D = 10.0, 8.0          # interior footprint (local x, local z)
 STOVE = (-3.2, -2.7)
@@ -73,6 +77,7 @@ DAY_INTRO = {
     2: "Day 2 - Animals are out! Grab an axe from a cabin's chopping block, hunt, and cook the meat on a stove.",
     3: "Day 3 - Fishing! Rods are on the Frozen Lake dock, Old Mill and Hollow End. Fish through the ice holes.",
     4: "Day 4 - A broken helicopter sits on the pad between the Summit and Birch Glade. Find its battery, fuel and rotor blade - fast.",
+    5: "Day 5 - Something feels wrong. Keep a solar radio close this morning.",
 }
 
 
@@ -126,34 +131,39 @@ ICE_HOLES = ice_holes()
 
 
 class Game:
-    def __init__(self, night_seconds, start_day=1):
+    def __init__(self, night_seconds, start_day=1, day_seconds=None):
         self.night_seconds = night_seconds
+        self.day_seconds = day_seconds or night_seconds * 2 / 3
         self.seed = random.randint(1, 999999)
         self.players = {}          # id -> dict
         self.clients = {}          # id -> Client
         self.next_id = 1
         self.events = []
         self.round_no = 0
-        self.day = max(1, min(STORY_DAYS, start_day)) - 1
+        self.day = 1
+        self.t = 0.0               # game minutes since 6 PM on day 1 - time never jumps
         self.bunker = random.randrange(len(BUNKERS))
-        self.new_round()
+        self.new_round(restart=True, day=max(1, min(STORY_DAYS, start_day)))
 
     # -- setup ---------------------------------------------------------------
-    def new_round(self, restart=False):
+    def new_round(self, restart=True, day=1):
+        """Start the story fresh (day 1 at 6 PM), or jump straight to the morning of another day."""
         self.round_no += 1
-        if restart or self.day >= STORY_DAYS:
-            self.day = 1
-            self.bunker = random.randrange(len(BUNKERS))
-            for p in self.players.values():
-                self.reset_tools(p)
-        else:
-            self.day += 1
-        self.minutes = 0.0
-        self.phase = "night"       # night | dawn
+        self.day = day
+        self.bunker = random.randrange(len(BUNKERS))
+        for p in self.players.values():
+            self.reset_tools(p)
+        self.t = 0.0 if day == 1 else 720.0 + (day - 2) * 1440.0
+        self.phase = "play"        # play | dawn (the story's end card)
         self.dawn_timer = 0.0
         self.summary = None
+        self.summary_timer = 0.0
         self.siren = False
         self.impact = False
+        self.all_clear = False
+        self.bcans = BUNKER_CANS
+        self.bonfire = 100.0
+        self.burners = [{"pot": -1.0, "kind": ""} for _ in range(5)]
         self.cabins = []
         for i, (name, x, z, region) in enumerate(CABIN_SPECS):
             self.cabins.append({
@@ -278,9 +288,12 @@ class Game:
         p["lost"] = False     # caught outside at impact
         p["fly"] = 0.0
         p["hitCd"] = 0.0
+        p["geiger"] = False
+        p["dose"] = 0.0
+        p["saved"] = False
         if spawn:
             a = random.random() * math.tau
-            p["x"], p["z"] = math.cos(a) * 4, 30 + math.sin(a) * 4
+            p["x"], p["z"] = -3 + math.cos(a) * 2.5, 32 + math.sin(a) * 2.5   # beside the bonfire
             p["teleport"] = True
 
     # -- helpers -------------------------------------------------------------
@@ -292,8 +305,64 @@ class Game:
         if c:
             c.send_text(json.dumps(msg))
 
+    # time of day ----------------------------------------------------------
+    @property
+    def tod(self):
+        """Minutes past midnight."""
+        return (1080.0 + self.t) % 1440.0
+
+    @property
+    def minutes(self):
+        """Minutes since 6 PM tonight (0-720 at night; 720+ during the day)."""
+        return (self.tod - 1080.0) % 1440.0
+
+    def is_night(self):
+        return self.tod >= 1080 or self.tod < 360
+
+    @staticmethod
+    def day_of(t):
+        return 1 if t < 720 else 2 + int((t - 720) // 1440)
+
+    def set_clock(self, hh, mm):
+        """Move the clock to hh:mm within the current day."""
+        target = hh * 60 + mm
+        start = 0.0 if self.day == 1 else 720.0 + (self.day - 2) * 1440.0
+        start_tod = 1080 if self.day == 1 else 360
+        off = (target - start_tod) % 1440
+        if self.day == 1 and off >= 720:
+            return False
+        self.t = start + off
+        return True
+
+    def morning(self, new_day):
+        """The sun is up after the gale: a new day starts in the same world."""
+        lit = [c["name"] for c in self.cabins if c["fuel"] > 0]
+        self.summary = {
+            "round": self.round_no, "day": self.day, "finale": False, "morning": True,
+            "litCabins": lit, "saved": None,
+            "players": sorted(
+                [{"name": p["name"], "color": p["color"], "freezes": p["freezes"],
+                  "logs": p["logsIn"], "kills": p["kills"], "catches": p["catches"], "saved": False}
+                 for p in self.players.values()],
+                key=lambda r: (r["freezes"], -r["logs"])),
+        }
+        self.summary_timer = 14.0
+        self.emit("Morning! The gale has passed. %d of 5 cabins kept burning through the night." % len(lit))
+        for p in self.players.values():
+            p["freezes"] = p["logsIn"] = p["kills"] = p["catches"] = 0
+        self.day = new_day
+        for cab in self.cabins:
+            cab["cans"] = min(4, cab["cans"] + 2)        # supplies were left on the porch
+        self.place_items()
+        if self.day >= 2 and not self.animals:
+            for _ in range(12):
+                self.spawn_animal("deer")
+            for _ in range(14):
+                self.spawn_animal("rabbit")
+        self.emit(DAY_INTRO[self.day])
+
     def gale_strength(self):
-        if self.day >= STORY_DAYS:
+        if self.day >= STORY_DAYS or not self.is_night():
             return 0.0
         m = self.minutes
         if m < GALE_START - 20 or m >= GALE_END + 15:
@@ -354,11 +423,11 @@ class Game:
             return
         if p["inB"]:
             bx, bz, _ = self.bunker_pos()     # stay inside the shelter
-            x, z = max(bx - 4, min(bx + 4, x)), max(bz - 3, min(bz + 3, z))
+            x, z = max(bx - 5.5, min(bx + 5.5, x)), max(bz - 3.5, min(bz + 3.6, z))
         p["x"], p["y"], p["z"], p["ry"] = x, y, z, ry
 
     def on_act(self, p, m):
-        if p["frozen"] > 0 or p["lost"] or p["fly"] > 0 or self.phase != "night":
+        if p["frozen"] > 0 or p["lost"] or p["fly"] > 0 or self.phase != "play":
             return
         try:                                   # the action carries where the player is right now
             ax, az = float(m["x"]), float(m["z"])
@@ -451,17 +520,56 @@ class Game:
             if dist2(p["x"], p["z"], bx, bz) > 4.5 ** 2:
                 return
             if p["inB"]:
-                if self.siren and not self.impact:
+                if self.siren and not self.all_clear:
                     return                                 # don't go back out now!
                 p["inB"] = False
                 p["x"], p["z"] = bx, bz + 3.5
                 p["teleport"] = True
-            elif self.day >= 4:
+            elif self.day >= 4 and not (self.impact and not self.all_clear):
                 p["inB"] = True
                 p["kb"] = True
                 p["x"], p["z"] = bx, bz
                 p["teleport"] = True
                 self.emit("%s made it into the bunker!" % p["name"])
+            return
+        if a == "bonfire":
+            if dist2(p["x"], p["z"], BONFIRE[0], BONFIRE[1]) > 5 ** 2 or p["carry"] <= 0 or self.impact:
+                return
+            if self.gale_strength() > 0.5:
+                return                                   # far too windy to light it
+            was_out = self.bonfire <= 0
+            if self.bonfire > 85:
+                return
+            p["carry"] -= 1
+            p["logsIn"] += 1
+            self.bonfire = min(100.0, self.bonfire + 30.0)
+            if was_out:
+                self.emit("%s relit the trailhead bonfire." % p["name"])
+            return
+        if a in ("bk_can", "bk_geiger", "bk_burner"):
+            if not p["inB"]:
+                return
+            if a == "bk_can" and not p["can"] and self.bcans > 0:
+                self.bcans -= 1
+                p["can"] = 1
+            elif a == "bk_geiger" and not p["geiger"]:
+                p["geiger"] = True
+                self.emit("%s clipped on a Geiger counter." % p["name"])
+            elif a == "bk_burner":
+                try:
+                    b = self.burners[int(m.get("i"))]
+                except (TypeError, ValueError, IndexError):
+                    return
+                if b["kind"] and b["pot"] >= FOOD[b["kind"]][0]:
+                    _, food, warm, label = FOOD[b["kind"]]
+                    b["pot"], b["kind"] = -1.0, ""
+                    p["hunger"] = min(100.0, p["hunger"] + food)
+                    p["warmth"] = min(100.0, p["warmth"] + warm)
+                    self.emit("%s ate %s in the bunker." % (p["name"], label))
+                elif b["pot"] < 0 and self.pick_food(p, m.get("food")):
+                    b["kind"] = self.pick_food(p, m.get("food"))
+                    self.use_food(p, b["kind"])
+                    b["pot"] = 0.0
             return
         try:
             cab = self.cabins[int(m.get("cabin"))]
@@ -489,16 +597,9 @@ class Game:
                 p["hunger"] = min(100.0, p["hunger"] + food)
                 p["warmth"] = min(100.0, p["warmth"] + warm)
                 self.emit("%s ate %s at %s." % (p["name"], label, cab["name"]))
-            elif cab["pot"] < 0 and cab["fuel"] > 0 and (p["meat"] or p["fish"] or p["can"]):
-                if p["meat"]:
-                    p["meat"] -= 1
-                    cab["potKind"] = "meat"
-                elif p["fish"]:
-                    p["fish"] -= 1
-                    cab["potKind"] = "fish"
-                else:
-                    p["can"] = 0
-                    cab["potKind"] = "stew"
+            elif cab["pot"] < 0 and cab["fuel"] > 0 and self.pick_food(p, m.get("food")):
+                cab["potKind"] = self.pick_food(p, m.get("food"))
+                self.use_food(p, cab["potKind"])
                 cab["pot"] = 0.0
             elif cab["pot"] < 0 and p["can"]:            # stove is cold, but you can still set the can on
                 p["can"] = 0
@@ -532,19 +633,41 @@ class Game:
                 elif cab["fuel"] > 0:   # need a flame from the stove
                     cab["candles"][i] = 240.0
 
+    @staticmethod
+    def pick_food(p, pref):
+        """What to cook: the player's choice if they have it, otherwise meat, fish, then a can."""
+        have = {"meat": p["meat"] > 0, "fish": p["fish"] > 0, "stew": bool(p["can"])}
+        if pref in have and have[pref]:
+            return pref
+        for k in ("meat", "fish", "stew"):
+            if have[k]:
+                return k
+        return None
+
+    @staticmethod
+    def use_food(p, kind):
+        if kind == "meat":
+            p["meat"] -= 1
+        elif kind == "fish":
+            p["fish"] -= 1
+        else:
+            p["can"] = 0
+
     def radio_text(self, p):
-        if self.day >= 4 and self.siren and not self.impact:
+        if self.day >= STORY_DAYS and self.siren and not self.impact:
             p["kb"] = True
             bx, bz, where = self.bunker_pos()
-            left = max(0, int((IMPACT_AT - self.minutes) * self.night_seconds / DAWN))
+            left = max(0, int((IMPACT_TOD - self.tod) * self.day_seconds / DAWN))
             return ("EMERGENCY ALERT SYSTEM. A Russian ICBM launch has been detected. Impact expected in "
                     "about %d:%02d. There is only ONE fallout shelter in the valley: a concrete bunker %s. "
                     "It is now marked on your map. Get inside and stay inside." % (left // 60, left % 60, where))
         if self.impact:
             return "...static... This is the Emergency Alert System. Remain in shelter. Do not go outside. ...static..."
-        if self.day >= 4:
-            return ("KVLY Mountain Radio... unusual military activity has been reported overseas. "
-                    "Civil defence sirens are being tested across the region. Stay near a radio tonight.")
+        if self.day >= STORY_DAYS:
+            return ("KVLY Mountain Radio... tensions overseas have reached a breaking point overnight. "
+                    "Civil defence sirens are being tested across the region. Stay near a radio this morning.")
+        if self.day == 4:
+            return "KVLY Mountain Radio... a rescue helicopter was abandoned on the high pad in last week's storm. Its parts were stored in the cabins. Gale again after 2 AM."
         if self.day == 3:
             return "KVLY Mountain Radio... the lake ice is thick enough for fishing. Trout are biting near the middle. Gale after 2 AM."
         if self.day == 2:
@@ -565,36 +688,43 @@ class Game:
         cmd = parts[0].lower()
         if cmd == "/day" and len(parts) > 1 and parts[1].isdigit():
             n = max(1, min(STORY_DAYS, int(parts[1])))
-            self.day = n - 1
-            if n == 1:
-                self.day = STORY_DAYS
             self.emit("%s skipped to day %d." % (p["name"], n))
-            self.new_round()
+            self.new_round(restart=True, day=n)
         elif cmd == "/skip":
-            self.emit("%s skipped to the next day." % p["name"])
-            self.new_round()
+            if self.day >= STORY_DAYS:
+                self.emit("%s restarted the story." % p["name"])
+                self.new_round(restart=True, day=1)
+            else:
+                self.emit("%s skipped ahead to the morning." % p["name"])
+                self.t = 720.0 + (self.day - 1) * 1440.0
         elif cmd == "/time" and len(parts) > 1 and ":" in parts[1]:
             try:
                 h, mm = [int(v) for v in parts[1].split(":")]
             except ValueError:
                 return
-            t = ((h - 18) % 24) * 60 + mm
-            if 0 <= t < DAWN:
-                self.minutes = float(t)
+            if 0 <= h < 24 and 0 <= mm < 60 and self.set_clock(h, mm):
                 self.emit("%s set the clock to %s." % (p["name"], parts[1]))
         else:
             self.tell(p, {"t": "chat", "from": "Server", "color": "#9fb0c8",
-                          "text": "Commands: /day 1-4, /skip, /time 22:00"})
+                          "text": "Commands: /day 1-5, /skip, /time 9:00"})
 
     # -- simulation ----------------------------------------------------------
     def step(self, dt):
         if self.phase == "dawn":
             self.dawn_timer -= dt
             if self.dawn_timer <= 0:
-                self.new_round()
+                self.new_round(restart=True, day=1)
             return
-        gm = dt * DAWN / self.night_seconds     # game minutes this tick
-        self.minutes += gm
+        # the clock runs a little faster in daylight; everything else ticks at the night rate
+        clock = dt * DAWN / (self.night_seconds if self.is_night() else self.day_seconds)
+        self.t += clock
+        nd = self.day_of(self.t)
+        if nd > self.day and self.day < STORY_DAYS:
+            self.morning(nd)
+        self.summary_timer = max(0.0, self.summary_timer - dt)
+        if self.summary_timer <= 0 and self.phase == "play":
+            self.summary = None
+        gm = dt * DAWN / self.night_seconds     # simulation minutes this tick
         gale = self.gale_strength()
 
         for cab in self.cabins:
@@ -608,6 +738,16 @@ class Game:
             if cab["pot"] >= 0 and cab["potKind"] and cab["fuel"] > 0:
                 cab["pot"] = min(float(FOOD[cab["potKind"]][0]), cab["pot"] + gm)
 
+        if self.bonfire > 0:
+            self.bonfire = max(0.0, self.bonfire - gm * 0.04)
+            if gale > 0.5 or self.impact:
+                self.bonfire = 0.0
+                if not self.impact:
+                    self.emit("The gale blew out the trailhead bonfire!")
+        for b in self.burners:
+            if b["kind"] and b["pot"] >= 0:
+                b["pot"] = min(float(FOOD[b["kind"]][0]), b["pot"] + gm)
+
         # logs trickle back in, but not during the gale
         if gale < 0.5:
             self.respawn_acc += gm
@@ -619,7 +759,8 @@ class Game:
         self.step_animals(dt, gm)
         self.step_story(dt)
 
-        late = 1.0 if self.minutes > 360 else self.minutes / 360
+        night = self.is_night()
+        late = (1.0 if self.minutes > 360 else self.minutes / 360) if night else 0.0
         for p in self.players.values():
             p["hitCd"] = max(0.0, p["hitCd"] - dt)
             if p["lost"]:
@@ -657,8 +798,20 @@ class Game:
                         d += 0.4
                 else:
                     d = -(0.05 + 0.3 * gale) * (0.4 if shut else 1.0)
-            else:
+            elif night:
                 d = -(0.09 + 0.07 * late + 0.75 * gale)
+            elif self.impact:
+                d = -0.06                             # ash blots out the sun
+            else:
+                d = -0.035                            # cold but sunny
+            if self.impact and not p["inB"]:
+                gx, gz = GROUND_ZERO
+                rad = 0.4 + 6.0 * math.exp(-dist2(p["x"], p["z"], gx, gz) / (2 * 160.0 ** 2))   # mSv per hour
+                p["dose"] += rad * dt * DAWN / self.day_seconds / 60.0
+            if self.bonfire > 0 and ci < 0 and not p["inB"]:
+                bd = math.sqrt(dist2(p["x"], p["z"], BONFIRE[0], BONFIRE[1]))
+                if bd < 9:
+                    d += 0.45 * (1 - bd / 9)              # the bonfire keeps you somewhat warm
             p["hunger"] = max(0.0, p["hunger"] - gm * 0.14)
             if p["hunger"] <= 0:
                 d -= 0.15
@@ -671,9 +824,7 @@ class Game:
                 p["fishT"], p["fishHole"] = 0.0, -1
                 self.emit("%s froze solid!" % p["name"])
 
-        if self.day >= STORY_DAYS and self.minutes >= FINALE_END:
-            self.end_round()
-        elif self.minutes >= DAWN:
+        if self.day >= STORY_DAYS and self.impact and self.tod >= FINALE_TOD:
             self.end_round()
 
     def step_animals(self, dt, gm):
@@ -728,6 +879,8 @@ class Game:
                 if d < 9:
                     nx, nz = c[1] + (nx - c[1]) / max(d, 0.01) * 9, c[2] + (nz - c[2]) / max(d, 0.01) * 9
             an["x"], an["z"] = nx, nz
+        if self.impact:
+            return
         # new animals wander in now and then
         self.animal_acc += gm
         if self.animal_acc > 25:
@@ -757,24 +910,35 @@ class Game:
                 self.emit("The helicopter touched down beside the bunker. Get inside!")
         if self.day < STORY_DAYS:
             return
-        if not self.siren and self.minutes >= SIREN_AT:
+        tod = self.tod
+        if not self.siren and SIREN_TOD <= tod < FINALE_TOD:
             self.siren = True
             self.emit("AIR RAID SIRENS! Get to a cabin's solar radio for instructions - NOW!")
-        if self.siren and not self.impact and self.minutes >= IMPACT_AT:
+        if self.siren and not self.impact and tod >= IMPACT_TOD:
             self.impact = True
             saved, lost = [], []
             for p in self.players.values():
                 if p["inB"]:
                     saved.append(p["name"])
+                    p["saved"] = True
                 else:
                     p["lost"] = True
                     p["fishT"], p["fishHole"] = 0.0, -1
                     lost.append(p["name"])
-            self.emit("IMPACT. The shockwave rolls across the valley.")
+            for cab in self.cabins:                    # the blast snuffs out every fire
+                cab["fuel"] = 0.0
+                cab["candles"] = [0.0, 0.0, 0.0]
+                cab["door"] = True
+            self.animals = {}
+            self.items = {k: v for k, v in self.items.items() if v["kind"] not in ("axe", "rod")}
+            self.emit("IMPACT. A hydrogen bomb has wiped out the valley.")
             if saved:
                 self.emit("Safe in the bunker: %s." % ", ".join(saved))
             if lost:
                 self.emit("Didn't make it: %s." % ", ".join(lost))
+        if self.impact and not self.all_clear and tod >= HATCH_TOD:
+            self.all_clear = True
+            self.emit("Two hours have passed. The hatch unlocks - grab a Geiger counter before you go out.")
 
     def thaw(self, p):
         # wake up in the warmest cabin, or the trailhead if every stove is out
@@ -785,7 +949,7 @@ class Game:
             p["x"], p["z"] = to_world(c, 0.0, 1.5)
             self.emit("%s thawed out by the fire at %s." % (p["name"], c["name"]))
         else:
-            p["x"], p["z"] = 0.0, 30.0
+            p["x"], p["z"] = -2.0, 31.0
             self.emit("%s thawed out at the trailhead." % p["name"])
         p["teleport"] = True
 
@@ -797,16 +961,16 @@ class Game:
         self.summary = {
             "round": self.round_no, "day": self.day, "finale": finale,
             "litCabins": lit,
-            "saved": [p["name"] for p in self.players.values() if p["inB"]] if finale else None,
+            "saved": [p["name"] for p in self.players.values() if p["saved"]] if finale else None,
             "players": sorted(
                 [{"name": p["name"], "color": p["color"], "freezes": p["freezes"],
                   "logs": p["logsIn"], "kills": p["kills"], "catches": p["catches"],
-                  "saved": bool(p["inB"])} for p in self.players.values()],
+                  "saved": bool(p["saved"])} for p in self.players.values()],
                 key=lambda r: (not r["saved"], r["freezes"], -r["logs"])),
         }
         if finale:
             n = len(self.summary["saved"])
-            self.emit("The valley falls silent. %d of %d made it to the bunker." % (n, len(self.players)))
+            self.emit("Night falls on a grey, silent valley. %d of %d survived the bomb." % (n, len(self.players)))
         else:
             self.emit("Dawn breaks on day %d. %d of 5 cabins still burning." % (self.day, len(lit)))
         for p in self.players.values():
@@ -821,10 +985,11 @@ class Game:
             {"i": c["i"], "name": c["name"], "x": c["x"], "z": c["z"], "rot": c["rot"],
              "region": c["region"]} for c in self.cabins],
             "galeStart": GALE_START, "galeEnd": GALE_END, "dawn": DAWN,
-            "sirenAt": SIREN_AT, "impactAt": IMPACT_AT, "days": STORY_DAYS,
+            "sirenTod": SIREN_TOD, "impactTod": IMPACT_TOD, "hatchTod": HATCH_TOD, "finaleTod": FINALE_TOD,
+            "groundZero": GROUND_ZERO, "days": STORY_DAYS, "bonfire": BONFIRE,
             "helipad": HELIPAD, "bunkers": [[b[0], b[1]] for b in BUNKERS],
             "holes": ICE_HOLES, "radio": RADIO,
-            "nightSeconds": self.night_seconds}
+            "nightSeconds": self.night_seconds, "daySeconds": self.day_seconds}
 
     def snapshot(self):
         players = []
@@ -837,13 +1002,15 @@ class Game:
                  "meat": p["meat"], "fish": p["fish"], "part": p["part"] or "",
                  "ft": round(p["fishT"], 1), "fh": p["fishHole"],
                  "kb": 1 if p["kb"] else 0, "inB": 1 if p["inB"] else 0,
-                 "lost": 1 if p["lost"] else 0, "fly": round(p["fly"], 1)}
+                 "lost": 1 if p["lost"] else 0, "fly": round(p["fly"], 1),
+                 "gc": 1 if p["geiger"] else 0, "dose": round(p["dose"], 2)}
             if p.pop("teleport", False):
                 d["tp"] = 1
             players.append(d)
         h = self.heli
         return {
-            "t": "state", "m": round(self.minutes, 2), "phase": self.phase,
+            "t": "state", "m": round(self.minutes, 2), "tod": round(self.tod, 2), "phase": self.phase,
+            "rate": round(DAWN / (self.night_seconds if self.is_night() else self.day_seconds), 4),
             "gale": round(self.gale_strength(), 3), "round": self.round_no, "day": self.day,
             "dawnIn": round(self.dawn_timer, 1) if self.phase == "dawn" else 0,
             "players": players,
@@ -858,9 +1025,11 @@ class Game:
                          round(a["spd"], 1)] for a in self.animals.values()],
             "heli": {"parts": h["parts"], "run": h["running"], "x": round(h["x"], 2),
                      "z": round(h["z"], 2), "fly": round(h["fly"], 2)},
-            "siren": self.siren, "impact": self.impact, "bunker": self.bunker,
+            "bonfire": round(self.bonfire, 1),
+            "siren": self.siren, "impact": self.impact, "bunker": self.bunker, "clear": self.all_clear,
+            "bk": {"cans": self.bcans, "burners": [[round(b["pot"], 1), b["kind"]] for b in self.burners]},
             "events": self.events,
-            "summary": self.summary if self.phase == "dawn" else None,
+            "summary": self.summary,
         }
 
     def broadcast(self, msg):
@@ -1064,8 +1233,9 @@ async def main():
     ap.add_argument("--port", type=int, default=8790)
     ap.add_argument("--minutes", type=float, default=12, help="real minutes per night (default 12)")
     ap.add_argument("--day", type=int, default=1, help="start on day 1-4")
+    ap.add_argument("--day-minutes", type=float, default=8, help="real minutes of daylight (default 8)")
     args = ap.parse_args()
-    GAME = Game(max(2.0, args.minutes) * 60, args.day)
+    GAME = Game(max(2.0, args.minutes) * 60, args.day, max(1.0, args.day_minutes) * 60)
     server, port = None, args.port
     for port in range(args.port, args.port + 20):
         try:
@@ -1089,7 +1259,7 @@ async def main():
     for ip in lan_ips():
         print("     Join on your network:  http://%s:%d" % (ip, port))
     print("     On this machine:       http://localhost:%d" % port)
-    print("\n  Night length: %.0f min.  Press Ctrl+C to stop.\n" % (GAME.night_seconds / 60))
+    print("\n  Night: %.0f min, daylight: %.0f min.  Press Ctrl+C to stop.\n" % (GAME.night_seconds / 60, GAME.day_seconds / 60))
     asyncio.create_task(game_loop())
     async with server:
         await server.serve_forever()

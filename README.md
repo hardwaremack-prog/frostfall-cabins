@@ -13,18 +13,21 @@ One computer runs the server (a Raspberry Pi is plenty). Nothing to install — 
 
 The window prints an address like `http://192.168.1.42:8790`. Everyone opens that address in Chrome/Chromium on their own computer or Pi and picks a name and coat colour. The server computer can play too at `http://localhost:8790`.
 
-Options: `python3 server.py --minutes 20` for a longer night (default 12), `--day 3` to start on day 3, `--port 9000` to change the port.
+Options: `python3 server.py --minutes 20` for a longer night (default 12), `--day 3` to start on day 3, `--day-minutes 10` for longer daylight, `--port 9000` to change the port.
 
-## The story (4 days)
+## The story (5 days)
+
+Time runs continuously. Day 1 starts at 6 PM; every later day starts at **6 AM, the morning after the gale**, in the same world (fires, wood and tools carry over). Daylight lasts 8 real minutes, nights 12.
 
 | Day | What happens |
 |---|---|
-| **1** | Spread out across the five cabins. Haul firewood, light the stoves, heat cans of stew, survive the **2:00 AM icy gale**. |
-| **2** | **Animals** roam the valley. An **axe** is stuck in the chopping block outside every cabin. Chase down deer and rabbits (they tire out), then cook the meat on a lit stove. |
+| **1** | Spread out across the five cabins. Haul firewood, light the stoves, heat cans of stew, survive the **2:00 AM icy gale**. A big **bonfire** at the trailhead keeps you somewhat warm — until the gale blows it out (relight it with a log). |
+| **2** | **Animals** roam the valley. An **axe** is stuck in the chopping block outside every cabin. Chase down deer and rabbits (they tire out), then cook the meat. |
 | **3** | **Fishing.** Rods are on the Frozen Lake dock (and at Old Mill and Hollow End). Fish through the ice holes, cook the catch. |
-| **4** | A broken **helicopter** sits on the pad between the Summit and Birch Glade. Race to bring its **battery** (Summit Lookout), **fuel can** (Old Mill) and **rotor blade** (Hollow End) and start it. At **10:30 PM the air-raid sirens** sound — get to the **solar radio** on a cabin wall to hear where the valley's **only bunker** is. The ICBM hits at 12:40 AM. Everyone in the bunker survives; a running helicopter can fly everyone nearby straight there. |
+| **4** | A broken **helicopter** sits on the pad between the Summit and Birch Glade. Race to bring its **battery** (Summit Lookout), **fuel can** (Old Mill) and **rotor blade** (Hollow End) and start it. |
+| **5** | **9:00 AM air-raid sirens.** Get to a cabin's **solar radio** to hear where the valley's **only bunker** is (or fly there in the helicopter). At **10:33 AM a Russian hydrogen bomb** hits the valley. In the bunker: a **TV** on a car battery shows the live summit camera, shelves of **canned food**, **5 electric burners** on a battery bank, and **Geiger counters**. The hatch stays locked for **2 hours**; then climb out into a valley of grey ash — the Geiger counter clicks and every step kicks up floating dust. The story ends at 6 PM. |
 
-After day 4 the story starts again from day 1.
+After day 5 the story starts again from day 1.
 
 ## Controls
 
@@ -32,12 +35,14 @@ After day 4 the story starts again from day 1.
 |---|---|
 | WASD / arrows | walk · **Shift** run · **Space** jump |
 | Mouse | look (click the game to grab the mouse, Esc to free it) |
-| **E** or **click** | pick up / use — doors, logs, woodbox, stove, cans, candles, radio, axe, rods, ice holes, helicopter, bunker hatch. With an axe, click to swing. |
+| **E** or **click** | pick up / use — doors, bonfire, logs, woodbox, stove, cans, candles, radio, axe, rods, ice holes, helicopter, bunker hatch. With an axe, click to swing. |
+| **1 / 2 / 3** | at a stove or burner: cook venison / trout / a can |
+| **− / =** · **N** | volume down / up · mute (or use the slider) |
 | **T** | chat · **Tab** who's where · **M** big map |
 
-Tips: things you can pick up glow. Warmth drains outdoors (much faster in the gale); a lit stove warms you, candles help a little. Freeze solid and you thaw out 10 seconds later by the strongest fire.
+Tips: walk up to a log and you pick it up automatically. Things you can pick up glow. A closed cabin door keeps the heat in. Warmth drains outdoors (much faster in the gale); a lit stove warms you, candles help a little. Freeze solid and you thaw out 10 seconds later by the strongest fire.
 
-**Host commands** (type in chat): `/day 1`–`/day 4` jump to a day, `/skip` next day, `/time 22:00` set the clock.
+**Host commands** (type in chat): `/day 1`–`/day 5` jump to a day, `/skip` jump to the next morning, `/time 9:00` set the clock.
 
 ## Files
 

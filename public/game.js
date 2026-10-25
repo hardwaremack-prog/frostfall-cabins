@@ -199,11 +199,11 @@ function buildWorld(world) {
     cols[i * 3] = tmp.r; cols[i * 3 + 1] = tmp.g; cols[i * 3 + 2] = tmp.b;
   }
   geo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
-  terrainMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  terrainMat = ashMat(new THREE.MeshLambertMaterial({ vertexColors: true }), 0x77726c);
   scene.add(new THREE.Mesh(geo, terrainMat));
 
   // frozen lake + dock
-  iceMat = new THREE.MeshPhongMaterial({ color: 0x9cc8e8, specular: 0xffffff, shininess: 90, transparent: true, opacity: 0.92 });
+  iceMat = ashMat(new THREE.MeshPhongMaterial({ color: 0x9cc8e8, specular: 0xffffff, shininess: 90, transparent: true, opacity: 0.92 }), 0x66625e);
   const ice = new THREE.Mesh(new THREE.CircleGeometry(LAKE.r + 4, 64), iceMat);
   ice.rotation.x = -Math.PI / 2; ice.position.set(LAKE.x, ICE_Y + 0.02, LAKE.z); scene.add(ice);
   const lc = cabins.find((c) => c.region === 'lake');
@@ -211,11 +211,16 @@ function buildWorld(world) {
     const dir = new THREE.Vector2(lc.x - LAKE.x, lc.z - LAKE.z).normalize();
     const plank = new THREE.MeshLambertMaterial({ color: 0x6b4a32 });
     const dock = new THREE.Group();
-    const deck = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.2, 12), plank); deck.position.y = 0.45; dock.add(deck);
-    for (let i = 0; i < 4; i++) for (const s of [-1, 1]) {
-      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 2.2), plank); post.position.set(s * 1.1, -0.2, -5 + i * 3.3); dock.add(post);
+    // run the dock from out on the ice right up onto the bank
+    let shore = LAKE.r + 4;
+    for (let d = LAKE.r - 6; d < LAKE.r + 40; d += 0.25) { if (heightFn(LAKE.x + dir.x * d, LAKE.z + dir.y * d) >= ICE_Y + 0.3) { shore = d; break; } }
+    const d0 = LAKE.r - 9, d1 = Math.max(shore + 1.5, LAKE.r + 5), len = d1 - d0, mid = (d0 + d1) / 2;
+    const deck = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.2, len), plank); deck.position.y = 0.45; dock.add(deck);
+    for (let z = -len / 2 + 0.5; z <= len / 2 - 0.5; z += 3) for (const s of [-1, 1]) {
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 2.6), plank); post.position.set(s * 1.1, -0.4, z); dock.add(post);
     }
-    const sx = LAKE.x + dir.x * (LAKE.r - 2), sz = LAKE.z + dir.y * (LAKE.r - 2);
+    for (let z = -len / 2 + 0.6; z < len / 2; z += 0.6) { const gap = new THREE.Mesh(new THREE.BoxGeometry(2.42, 0.02, 0.03), new THREE.MeshLambertMaterial({ color: 0x3a281a })); gap.position.set(0, 0.56, z); dock.add(gap); }
+    const sx = LAKE.x + dir.x * mid, sz = LAKE.z + dir.y * mid;
     dock.position.set(sx, ICE_Y, sz); dock.rotation.y = Math.atan2(dir.x, dir.y); scene.add(dock);
   }
 
@@ -278,7 +283,7 @@ function buildTrees() {
     { geo: new THREE.IcosahedronGeometry(1.1, 0).translate(-0.6, 5.6, 0.4), color: leaf },
     { geo: new THREE.IcosahedronGeometry(1.0, 0).translate(0.5, 7.6, -0.3), color: leaf },
   ]);
-  const mat = frostMaterial({ vertexColors: true });
+  const mat = TREE_MAT = ashMat(frostMaterial({ vertexColors: true }), 0x2e2a27);
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), v = new THREE.Vector3(), sc = new THREE.Vector3();
   for (const [list, g] of [[pines, pineGeo], [birches, birchGeo]]) {
     const im = new THREE.InstancedMesh(g, mat, list.length);
@@ -295,7 +300,7 @@ function buildRocks() {
     if (h < 45 && rnd() > 0.15) continue;
     list.push([x, h, z, 0.6 + rnd() * 2.2, rnd() * 6]);
   }
-  const im = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(1, 0), frostMaterial({ color: 0x6d717c }), list.length);
+  const im = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(1, 0), ashMat(frostMaterial({ color: 0x6d717c }), 0x3a3734), list.length);
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
   list.forEach(([x, y, z, s, r], i) => { q.setFromEuler(e.set(r, r * 2, r * 0.5)); m4.compose(new THREE.Vector3(x, y - s * 0.3, z), q, new THREE.Vector3(s * 1.3, s * 0.8, s)); im.setMatrixAt(i, m4); });
   scene.add(im);
@@ -332,10 +337,10 @@ function signTex(text) {
 function buildCabin(c) {
   LOGTEX = LOGTEX || logTex(); GLOWTEX = GLOWTEX || glowSprite();
   const g = new THREE.Group(); g.position.set(c.x, c.base, c.z); g.rotation.y = c.rot; scene.add(g); c.group = g;
-  const wall = new THREE.MeshLambertMaterial({ map: LOGTEX });
+  const wall = ashMat(new THREE.MeshLambertMaterial({ map: LOGTEX }), 0x4a4440);
   const plank = new THREE.MeshLambertMaterial({ color: 0x7b5a3c });
   const dark = new THREE.MeshLambertMaterial({ color: 0x23242a });
-  const snowM = new THREE.MeshLambertMaterial({ color: 0xf2f6fc });
+  const snowM = ashMat(new THREE.MeshLambertMaterial({ color: 0xf2f6fc }), 0x8a857f);
   const stone = new THREE.MeshLambertMaterial({ color: 0x7a7670 });
   const box = (w, h, d, m, x, y, z) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); o.position.set(x, y, z); g.add(o); return o; };
   const T = 0.35, H = 3, Y0 = 0.3, hw = CABIN_W / 2, hd = CABIN_D / 2;
@@ -494,9 +499,17 @@ function buildLandmarks() {
     const board = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 0.42), new THREE.MeshLambertMaterial({ map: tex, transparent: true, side: THREE.DoubleSide }));
     board.position.x = 1.15; arm.add(board);
   });
-  // stone fire ring
-  const ring = new THREE.Mesh(new THREE.TorusGeometry(1.1, 0.25, 6, 14), new THREE.MeshLambertMaterial({ color: 0x6f6b66 }));
-  ring.rotation.x = -Math.PI / 2; ring.position.set(3.5, 0.15, -2); g.add(ring);
+  // big bonfire in a stone ring
+  const bf = new THREE.Group(); bf.position.set(3.5, 0, -2); g.add(bf);
+  for (let k = 0; k < 12; k++) { const a = k / 12 * Math.PI * 2, st = new THREE.Mesh(new THREE.DodecahedronGeometry(0.42, 0), new THREE.MeshLambertMaterial({ color: 0x6f6b66 })); st.position.set(Math.cos(a) * 1.9, 0.2, Math.sin(a) * 1.9); st.rotation.set(a, a * 2, 0); bf.add(st); }
+  const logMat = new THREE.MeshLambertMaterial({ color: 0x5a3a22 });
+  for (let k = 0; k < 7; k++) { const a = k / 7 * Math.PI * 2, l = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.17, 2.6, 7), logMat); l.position.set(Math.cos(a) * 0.55, 1.0, Math.sin(a) * 0.55); l.rotation.set(Math.sin(a) * 0.45, 0, -Math.cos(a) * 0.45); bf.add(l); }
+  const embers = new THREE.Mesh(new THREE.CircleGeometry(1.1, 16), new THREE.MeshBasicMaterial({ color: 0x2a1408 })); embers.rotation.x = -Math.PI / 2; embers.position.y = 0.06; bf.add(embers);
+  const flames = [];
+  for (let k = 0; k < 9; k++) { const f = new THREE.Sprite(new THREE.SpriteMaterial({ map: GLOWTEX || (GLOWTEX = glowSprite()), color: k % 3 ? 0xff9a3c : 0xffd27a, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })); f.userData = { ph: k * 1.3, r: (k % 4) * 0.22 }; bf.add(f); flames.push(f); }
+  const fl = new THREE.PointLight(0xff9a4a, 0, 30, 1.2); fl.position.y = 2; bf.add(fl);
+  const smoke = makeSmoke(new THREE.Vector3(SPAWN.x + 3.5, spawnBase + 3, SPAWN.z - 2)); scene.add(smoke);
+  BONFIRE_FX = { flames, light: fl, embers, smoke, logMat };
   // summit radio mast with a blinking light, visible from everywhere
   const sc = cabins.find((c) => c.region === 'summit');
   if (sc) {
@@ -505,6 +518,7 @@ function buildLandmarks() {
     const m = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.35, 22, 6), steel); m.position.set(mx, mb + 11, mz); scene.add(m);
     mast = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex('rgba(255,90,80,1)', 'rgba(255,40,30,0.3)'), fog: false, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
     mast.scale.set(5, 5, 1); mast.position.set(mx, mb + 22.4, mz); scene.add(mast);
+    MAST_TOP = new THREE.Vector3(mx, mb + 21.5, mz + 2);
   }
 }
 
@@ -547,11 +561,12 @@ function syncLogs(list) {
 }
 
 // ------------------------------------------------------------------- story
-// Day 2 axes + animals, day 3 rods + ice holes, day 4 helicopter, sirens, radio, bunker, missile.
+// Day 2 axes + animals, day 3 rods + ice holes, day 4 helicopter, day 5 sirens, radio, bunker and the bomb.
 let WINFO = null;
 const itemMeshes = new Map();
 const animalMeshes = new Map();
-let heli = null, bunkerHatches = [], bunkerRoom = null, holeMeshes = [], missile = null, mushroom = null;
+let heli = null, bunkerHatches = [], bunkerRoom = null, holeMeshes = [];
+let MAST_TOP = new THREE.Vector3(0, 120, -220), ASHK = 0, BONFIRE_FX = null;
 let viewAxe = null, viewRod = null, swingT = 0, bobber = null;
 let lastDay = 0, impactSeen = false, shakeT = 0, sirenWasOn = false;
 const ROOM_DEPTH = 32;   // the shelter is this far under its hatch
@@ -611,7 +626,7 @@ function buildStory(world) {
   if (lc) {
     const ux = lc.x - LAKE.x, uz = lc.z - LAKE.z, d = Math.hypot(ux, uz), dx = ux / d, dz = uz / d;
     const sx = LAKE.x + dx * (LAKE.r - 2) + dx * 6 - dx * 1.2, sz = LAKE.z + dz * (LAKE.r - 2) + dz * 6 - dz * 1.2;
-    const rack = new THREE.Group(); rack.position.set(sx, ICE_Y + 0.55, sz); rack.rotation.y = Math.atan2(dx, dz); scene.add(rack);
+    const rack = new THREE.Group(); rack.position.set(sx, Math.max(ICE_Y + 0.55, heightFn(sx, sz) + 0.05), sz); rack.rotation.y = Math.atan2(dx, dz); scene.add(rack);
     const wood = std(0x6b4a32);
     const bar = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.08, 0.08), wood); bar.position.set(0, 1.3, -0.3); rack.add(bar);
     for (const x of [-1.15, 1.15]) { const post = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.4, 0.1), wood); post.position.set(x, 0.7, -0.3); rack.add(post); }
@@ -642,16 +657,7 @@ function buildStory(world) {
     g.visible = false; bunkerHatches.push(g);
   }
   bunkerRoom = buildBunkerRoom(); scene.add(bunkerRoom);
-  // the incoming missile and the far-off blast
-  missile = new THREE.Group();
-  const mGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex('rgba(255,255,230,1)', 'rgba(255,170,90,0.4)'), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
-  mGlow.scale.set(28, 28, 1); missile.add(mGlow);
-  const trailGeo = new THREE.BufferGeometry(); trailGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(60 * 3), 3));
-  missile.trail = new THREE.Line(trailGeo, new THREE.LineBasicMaterial({ color: 0xfff1d0, transparent: true, opacity: 0.7, fog: false }));
-  missile.trail.frustumCulled = false; scene.add(missile.trail);
-  missile.visible = false; missile.trail.visible = false; scene.add(missile);
-  mushroom = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex('rgba(255,240,200,1)', 'rgba(255,120,40,0.55)'), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false, opacity: 0 }));
-  mushroom.position.set(-500, 60, -2300); mushroom.scale.set(10, 10, 1); scene.add(mushroom);
+  buildBomb();
   // held tools
   viewAxe = makeAxeMesh(); viewAxe.scale.setScalar(0.7); viewAxe.position.set(0.42, -0.62, -0.75); viewAxe.rotation.set(-0.2, -0.3, -0.25); viewAxe.visible = false; camera.add(viewAxe);
   viewRod = makeRodMesh(); viewRod.scale.setScalar(0.85); viewRod.position.set(0.38, -0.7, -0.6); viewRod.rotation.set(-0.9, -0.2, -0.2); viewRod.visible = false; camera.add(viewRod);
@@ -682,27 +688,214 @@ function buildHelicopter() {
 }
 
 function buildBunkerRoom() {
+  // 12 x 8 m shelter. Local coords: ladder on the front wall (+z), TV on the left wall (-x),
+  // electric burners on the right wall (+x), canned food on the back wall (-z).
   const g = new THREE.Group();
   const concrete = new THREE.MeshLambertMaterial({ color: 0x8b8e8a, side: THREE.BackSide });
-  const shell = new THREE.Mesh(new THREE.BoxGeometry(9, 3.2, 7), concrete); shell.position.y = 1.6; g.add(shell);
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(9, 7), std(0x55585a)); floor.rotation.x = -Math.PI / 2; floor.position.y = 0.01; g.add(floor);
-  const steel = std(0x5d6a5a), mattress = std(0x7d8a6a);
-  for (const x of [-3.2, 3.2]) for (const y of [0.4, 1.5]) {
-    const f = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.1, 2.2), steel); f.position.set(x, y, -2.1); g.add(f);
-    const m = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.14, 2.0), mattress); m.position.set(x, y + 0.12, -2.1); g.add(m);
-  }
-  const shelf = new THREE.Mesh(new THREE.BoxGeometry(3, 1.8, 0.5), std(0x6a6d70)); shelf.position.set(0, 0.9, -3.2); g.add(shelf);
-  for (let k = 0; k < 12; k++) { const can = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.18, 8), std(k % 3 ? 0xc23b2b : 0x3a6fd8)); can.position.set(-1.3 + (k % 6) * 0.5, 0.75 + Math.floor(k / 6) * 0.6, -3.05); g.add(can); }
-  const ladder = new THREE.Group(); ladder.position.set(0, 0, 3.2); g.add(ladder);
+  const shell = new THREE.Mesh(new THREE.BoxGeometry(12, 3.2, 8), concrete); shell.position.y = 1.6; g.add(shell);
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(12, 8), std(0x55585a)); floor.rotation.x = -Math.PI / 2; floor.position.y = 0.01; g.add(floor);
+  const steel = std(0x5d6a5a), dark = std(0x26282b), wood = std(0x7b5a3c);
+  // ladder up to the hatch
+  const ladder = new THREE.Group(); ladder.position.set(0, 0, 3.8); g.add(ladder);
   for (const x of [-0.35, 0.35]) { const r = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 3.2), steel); r.position.set(x, 1.6, 0); ladder.add(r); }
   for (let k = 0; k < 8; k++) { const r = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.7), steel); r.rotation.z = Math.PI / 2; r.position.set(0, 0.3 + k * 0.38, 0); ladder.add(r); }
-  const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 6), new THREE.MeshBasicMaterial({ color: 0xfff1c0 })); bulb.position.set(0, 3.0, 0); g.add(bulb);
-  const light = new THREE.PointLight(0xffe2a8, 0, 14, 1); light.position.set(0, 2.8, 0); g.add(light);
+  // bunk beds in the front-left corner
+  const mattress = std(0x7d8a6a);
+  for (const y of [0.4, 1.5]) {
+    const f = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.1, 1.0), steel); f.position.set(-4.6, y, 3.2); g.add(f);
+    const m = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.14, 0.9), mattress); m.position.set(-4.6, y + 0.12, 3.2); g.add(m);
+  }
+  // canned food on the back wall: 3 shelves x 8 cans
+  const cans = [];
+  for (let row = 0; row < 3; row++) {
+    const sh = new THREE.Mesh(new THREE.BoxGeometry(9.6, 0.06, 0.45), wood); sh.position.set(0, 0.55 + row * 0.65, -3.75); g.add(sh);
+    for (let k = 0; k < 8; k++) {
+      const c = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.24, 10), std([0xc23b2b, 0x3a6fd8, 0xd8a83a, 0x3a9a5a][(k + row) % 4]));
+      c.position.set(-4.2 + k * 1.2, 0.7 + row * 0.65, -3.72); g.add(c); cans.push(c);
+    }
+  }
   const sTex = canvasTex(512, 128, (c, w, h) => { c.fillStyle = '#f2c230'; c.fillRect(0, 0, w, h); c.fillStyle = '#111'; c.font = 'bold 64px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('FALLOUT SHELTER', w / 2, h / 2 + 4); });
-  const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 0.6), new THREE.MeshBasicMaterial({ map: sTex })); sign.position.set(0, 2.5, -3.45); g.add(sign);
-  g.userData = { light, bulb };
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 0.65), new THREE.MeshBasicMaterial({ map: sTex })); sign.position.set(0, 2.75, -3.97); g.add(sign);
+  // five electric burners on a counter along the right wall, run off a battery bank
+  const counter = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.9, 6.2), std(0x6a6d70)); counter.position.set(5.5, 0.45, 0); g.add(counter);
+  const top = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.05, 6.3), std(0x2f3236)); top.position.set(5.5, 0.92, 0); g.add(top);
+  const burners = [];
+  for (let i = 0; i < 5; i++) {
+    const z = -2.4 + i * 1.2;
+    const plate = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.24, 0.04, 18), dark); plate.position.set(5.45, 0.96, z); g.add(plate);
+    const coilMat = new THREE.MeshBasicMaterial({ color: 0x331a14 });
+    const coil = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.025, 6, 20), coilMat); coil.rotation.x = -Math.PI / 2; coil.position.set(5.45, 0.99, z); g.add(coil);
+    const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.13, 0.18, 12), std(0xb7b9c0)); pot.position.set(5.45, 1.09, z); pot.visible = false; g.add(pot);
+    const knob = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.05, 8), std(0x111111)); knob.rotation.z = Math.PI / 2; knob.position.set(5.03, 0.75, z); g.add(knob);
+    burners.push({ coilMat, pot });
+  }
+  for (let k = 0; k < 3; k++) { const b = makePartMesh('battery'); b.position.set(5.4, 0.0, -1.6 + k * 1.6); b.rotation.y = Math.PI / 2; g.add(b); }
+  // flat-screen TV on the left wall, fed by a car battery on the floor
+  const tvFrame = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.35, 2.3), dark); tvFrame.position.set(-5.94, 1.85, 0); g.add(tvFrame);
+  const tvMat = new THREE.MeshBasicMaterial({ color: 0x111111 });
+  const tv = new THREE.Mesh(new THREE.PlaneGeometry(2.16, 1.22), tvMat); tv.rotation.y = Math.PI / 2; tv.position.set(-5.89, 1.85, 0); g.add(tv);
+  const labelTex = canvasTex(256, 40, (c, w, h) => { c.fillStyle = 'rgba(200,20,20,.9)'; c.fillRect(0, 0, 70, h); c.fillStyle = '#fff'; c.font = 'bold 24px sans-serif'; c.textBaseline = 'middle'; c.fillText('LIVE', 8, h / 2 + 1); c.fillStyle = 'rgba(0,0,0,.6)'; c.fillRect(70, 0, w - 70, h); c.fillStyle = '#fff'; c.font = '20px sans-serif'; c.fillText('SUMMIT CAM 1', 80, h / 2 + 1); });
+  const label = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.1), new THREE.MeshBasicMaterial({ map: labelTex, transparent: true })); label.rotation.y = Math.PI / 2; label.position.set(-5.885, 2.38, -0.7); g.add(label);
+  const carBat = makePartMesh('battery'); carBat.position.set(-5.5, 0, 1.5); carBat.rotation.y = Math.PI / 2; g.add(carBat);
+  for (const [z, c] of [[1.42, 0xd9362b], [1.58, 0x111111]]) {
+    const cable = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 1.45, 5), std(c)); cable.position.set(-5.85, 0.95, z * 0.9); cable.rotation.x = 0.35; g.add(cable);
+  }
+  // Geiger counters hanging by the ladder
+  const geigers = [];
+  const hook = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.06, 0.06), steel); hook.position.set(2.6, 1.72, 3.94); g.add(hook);
+  for (let k = 0; k < 6; k++) {
+    const gc = new THREE.Group(); gc.position.set(2.0 + k * 0.24, 1.45, 3.9); g.add(gc);
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.24, 0.08), std(0xe8c23a)); gc.add(body);
+    const dial = new THREE.Mesh(new THREE.PlaneGeometry(0.1, 0.07), new THREE.MeshBasicMaterial({ color: 0xf2f2e8 })); dial.position.set(0, 0.05, -0.041); dial.rotation.y = Math.PI; gc.add(dial);
+    geigers.push(gc);
+  }
+  // light
+  const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 6), new THREE.MeshBasicMaterial({ color: 0xfff1c0 })); bulb.position.set(0, 3.0, 0); g.add(bulb);
+  const light = new THREE.PointLight(0xffe2a8, 0, 16, 1); light.position.set(0, 2.8, 0); g.add(light);
+  g.userData = { light, bulb, cans, burners, tv, tvMat, geigers };
   g.visible = false;
   return g;
+}
+
+// local positions of the bunker stations (room coords)
+const BK_CAN = [0, -3.3, 1.2], BK_GEIGER = [2.6, 3.4, 1.45], BK_LADDER = [0, 3.4, 1.4];
+const BK_BURNERS = [0, 1, 2, 3, 4].map((i) => [5.0, -2.4 + i * 1.2, 1.0]);
+
+// ------------------------------------------------------------- the bomb
+let bomb = null, tvTarget = null, tvCam = null, staticTex = null, ashMats = [], TREE_MAT = null, ROCK_MAT = null;
+const GZ = { x: 20, z: -10 };
+function ashMat(mat, to) { ashMats.push({ mat, from: mat.color.clone(), to: new THREE.Color(to) }); return mat; }
+function applyAsh(k) {
+  for (const a of ashMats) a.mat.color.copy(a.from).lerp(a.to, k);
+}
+function buildBomb() {
+  const g = new THREE.Group(); scene.add(g);
+  const warhead = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex('rgba(255,255,230,1)', 'rgba(255,170,90,0.4)'), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
+  warhead.scale.set(40, 40, 1); g.add(warhead);
+  const trailGeo = new THREE.BufferGeometry(); trailGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(80 * 3), 3));
+  const trail = new THREE.Line(trailGeo, new THREE.LineBasicMaterial({ color: 0xfff1d0, transparent: true, opacity: 0.8, fog: false })); trail.frustumCulled = false; scene.add(trail);
+  const gy = heightFn(GZ.x, GZ.z);
+  const fireMat = new THREE.MeshBasicMaterial({ color: 0xfff6d0, transparent: true, fog: false, depthWrite: false });
+  const fire = new THREE.Mesh(new THREE.SphereGeometry(1, 28, 18), fireMat); fire.position.set(GZ.x, gy, GZ.z); scene.add(fire);
+  const ringMat = new THREE.MeshBasicMaterial({ color: 0xfff0d8, transparent: true, side: THREE.DoubleSide, fog: false, depthWrite: false });
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.85, 1, 64), ringMat); ring.rotation.x = -Math.PI / 2; ring.position.set(GZ.x, gy + 3, GZ.z); scene.add(ring);
+  const cloud = new THREE.Group(); cloud.position.set(GZ.x, gy, GZ.z); scene.add(cloud);
+  const cloudMat = new THREE.MeshLambertMaterial({ color: 0xffa860, emissive: 0xff6a20, transparent: true, fog: false, depthWrite: false });
+  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.75, 1, 18, 1, true), cloudMat); cloud.add(stem);
+  const cap = new THREE.Group(); cloud.add(cap);
+  for (let k = 0; k < 10; k++) { const a = k / 10 * Math.PI * 2, b = new THREE.Mesh(new THREE.SphereGeometry(0.45, 14, 10), cloudMat); b.position.set(Math.cos(a) * 0.75, (k % 2) * 0.12, Math.sin(a) * 0.75); cap.add(b); }
+  const crown = new THREE.Mesh(new THREE.SphereGeometry(0.75, 18, 12), cloudMat); crown.position.y = 0.25; crown.scale.y = 0.7; cap.add(crown);
+  const skirt = new THREE.Mesh(new THREE.TorusGeometry(0.6, 0.18, 8, 24), cloudMat); skirt.rotation.x = Math.PI / 2; skirt.position.y = -0.45; cloud.add(skirt);
+  fire.visible = ring.visible = cloud.visible = false;
+  bomb = { g, warhead, trail, fire, fireMat, ring, ringMat, cloud, cloudMat, stem, cap, skirt, gy };
+  // the summit camera that feeds the bunker TV
+  tvTarget = new THREE.WebGLRenderTarget(quality === 'pi' ? 256 : 384, quality === 'pi' ? 144 : 216);
+  tvCam = new THREE.PerspectiveCamera(62, 16 / 9, 1, 4200);
+  tvCam.position.copy(MAST_TOP); tvCam.lookAt(GZ.x, gy + 120, GZ.z);
+  staticTex = canvasTex(160, 90, () => {});
+}
+function bombTick(dt, t) {
+  if (!bomb || !S) return;
+  const W = WINFO, B = bomb, finale = S.day >= W.days;
+  // incoming warhead between the sirens and the strike
+  if (finale && S.siren && !S.impact) {
+    const f = clamp((localTod - W.sirenTod) / (W.impactTod - W.sirenTod), 0, 1);
+    const sx = 1900, sy = 2600, sz = -1700;
+    const pos = (ff) => [lerp(sx, GZ.x, ff), lerp(sy, B.gy, ff * ff), lerp(sz, GZ.z, ff)];
+    const [x, y, z] = pos(f); B.warhead.position.set(x, y, z);
+    const arr = B.trail.geometry.attributes.position.array;
+    for (let i = 0; i < 80; i++) { const [a, b2, c] = pos(Math.max(0, f - i * 0.005)); arr[i * 3] = a; arr[i * 3 + 1] = b2; arr[i * 3 + 2] = c; }
+    B.trail.geometry.attributes.position.needsUpdate = true;
+    B.g.visible = true; B.trail.visible = true;
+  } else { B.g.visible = false; B.trail.visible = false; }
+  // the blast
+  if (finale && S.impact) {
+    const a = impactAge;
+    const fr = a < 2.5 ? 30 + a * 130 : 355 + (a - 2.5) * 6;
+    B.fire.visible = a < 16; B.fire.scale.setScalar(Math.min(fr, 420));
+    B.fire.position.y = B.gy + Math.min(fr * 0.6, 260) + a * 8;
+    B.fireMat.opacity = clamp(1.1 - a / 14, 0, 1);
+    B.fireMat.color.setHSL(lerp(0.15, 0.03, clamp(a / 8, 0, 1)), 1, lerp(0.95, 0.45, clamp(a / 10, 0, 1)));
+    B.ring.visible = a < 12; const rr = a * 140; B.ring.scale.set(rr, rr, 1); B.ringMat.opacity = clamp(1 - a / 12, 0, 1) * 0.8;
+    B.cloud.visible = a > 1;
+    const h = Math.min(1500, 160 + a * 70), w = Math.min(620, 120 + a * 26);
+    B.stem.scale.set(w * 0.16, h, w * 0.16); B.stem.position.y = h / 2;
+    B.cap.scale.set(w, w * 0.55, w); B.cap.position.y = h + w * 0.15;
+    B.skirt.scale.set(w * 0.8, w * 0.8, w * 0.6); B.skirt.position.y = h * 0.62;
+    const cool = clamp((a - 4) / 40, 0, 1);
+    B.cloudMat.color.setHex(0xffa860).lerp(C(0x6e645a), cool); B.cloudMat.emissive.setHex(0xff6a20).multiplyScalar(1 - cool * 0.95);
+    B.cloudMat.opacity = 0.9 * clamp(1 - (a - 120) / 60, 0, 1);   // drifts away after a couple of minutes
+    B.cloud.visible = B.cloud.visible && B.cloudMat.opacity > 0.02;
+  } else { B.fire.visible = B.ring.visible = B.cloud.visible = false; }
+}
+
+// dust kicked up in the ash
+const puffs = [];
+let puffTex = null, puffAcc = 0;
+function spawnPuff(x, y, z) {
+  if (!puffTex) puffTex = glowTex('rgba(170,165,158,0.75)', 'rgba(150,145,138,0.3)');
+  let p = puffs.find((q) => q.life <= 0);
+  if (!p) {
+    if (puffs.length > 90) return;
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: puffTex, transparent: true, depthWrite: false })); scene.add(s);
+    p = { s, life: 0, vx: 0, vy: 0, vz: 0 }; puffs.push(p);
+  }
+  p.life = p.max = 2.8 + Math.random() * 1.6; p.s.visible = true;
+  p.s.position.set(x + (Math.random() - 0.5) * 0.6, y + 0.1, z + (Math.random() - 0.5) * 0.6);
+  p.vx = (Math.random() - 0.5) * 0.5; p.vy = 0.25 + Math.random() * 0.45; p.vz = (Math.random() - 0.5) * 0.5;
+}
+function puffTick(dt, ashK) {
+  for (const p of puffs) {
+    if (p.life <= 0) continue;
+    p.life -= dt; if (p.life <= 0) { p.s.visible = false; continue; }
+    const k = 1 - p.life / p.max;
+    p.s.position.x += p.vx * dt; p.s.position.y += p.vy * dt * (1 - k * 0.7); p.s.position.z += p.vz * dt;
+    const sc = 0.5 + k * 2.2; p.s.scale.set(sc, sc, 1); p.s.material.opacity = (1 - k) * 0.55;
+  }
+  if (ashK < 0.5) return;
+  puffAcc -= dt;
+  if (puffAcc > 0) return;
+  puffAcc = 0.09;
+  const P = myState();
+  const moving = Math.abs(me.vx) + Math.abs(me.vz) > 1.2;
+  if (P && !P.inB && moving && me.onGround) spawnPuff(me.x, me.y, me.z);
+  for (const a of avatars.values()) { if (a.g.visible && a.wasMoving && Math.random() < 0.6) spawnPuff(a.g.position.x, a.g.position.y, a.g.position.z); }
+}
+
+// Geiger counter: clicks faster the hotter it is
+let geigerT = 0;
+function radAt(x, z) { return 0.4 + 6.0 * Math.exp(-((x - GZ.x) ** 2 + (z - GZ.z) ** 2) / (2 * 160 * 160)); }
+function geigerTick(dt) {
+  const P = myState(); const el = $('geiger');
+  if (!P || !P.gc) { el.classList.add('hidden'); return; }
+  el.classList.remove('hidden');
+  const rate = S && S.impact ? (P.inB ? 0.02 : radAt(me.x, me.z)) : 0.0012;   // mSv/h
+  $('geigerRate').textContent = rate < 0.01 ? (rate * 1000).toFixed(1) + ' µSv/h' : rate.toFixed(2) + ' mSv/h';
+  $('geigerDose').textContent = `dose ${P.dose.toFixed(1)} mSv`;
+  el.classList.toggle('hot', rate > 2);
+  const cps = Math.min(40, rate * 6 + 0.3);
+  geigerT -= dt;
+  while (geigerT <= 0) { geigerT += -Math.log(Math.random() + 1e-6) / cps; if (actx) noiseBurst(0.006, 6000, 0.35); }
+}
+
+function renderTV() {
+  if (!bomb || !bunkerRoom) return;
+  const P = myState(); if (!P || !P.inB) return;
+  const ud = bunkerRoom.userData;
+  const dead = S.impact && impactAge > 40;     // the summit camera finally dies
+  if (dead) {
+    const cv = staticTex.image, g = cv.getContext('2d'), img = g.createImageData(cv.width, cv.height);
+    for (let i = 0; i < img.data.length; i += 4) { const v = Math.random() * 200; img.data[i] = img.data[i + 1] = img.data[i + 2] = v; img.data[i + 3] = 255; }
+    g.putImageData(img, 0, 0); g.fillStyle = 'rgba(0,0,0,.6)'; g.fillRect(30, 36, 100, 18); g.fillStyle = '#fff'; g.font = 'bold 12px sans-serif'; g.fillText('NO SIGNAL', 48, 49);
+    staticTex.needsUpdate = true; ud.tvMat.map = staticTex; ud.tvMat.color.set(0xffffff); ud.tvMat.needsUpdate = true;
+    return;
+  }
+  if (ud.tvMat.map !== tvTarget.texture) { ud.tvMat.map = tvTarget.texture; ud.tvMat.color.set(0xffffff); ud.tvMat.needsUpdate = true; }
+  if ((frameN % 3) !== 0) return;
+  const wasRoom = bunkerRoom.visible; bunkerRoom.visible = false;
+  const lv = lantern.visible; lantern.visible = false;
+  renderer.setRenderTarget(tvTarget); renderer.render(scene, tvCam); renderer.setRenderTarget(null);
+  bunkerRoom.visible = wasRoom; lantern.visible = lv;
 }
 
 function bunkerXZ() { if (!S || !WINFO) return null; return WINFO.bunkers[S.bunker] || null; }
@@ -717,7 +910,7 @@ function syncItems(list) {
       m = new THREE.Group();
       const model = kind === 'axe' ? makeAxeMesh() : kind === 'rod' ? makeRodMesh() : makePartMesh(kind);
       m.add(model);
-      const gy = onIce(x, z) ? ICE_Y + 0.5 : groundAt(x, z);
+      const gy = onIce(x, z) ? Math.max(ICE_Y + 0.55, terrainAt(x, z)) : groundAt(x, z);
       if (kind === 'axe') { model.rotation.set(0, 0.6, -0.5); m.position.set(x, gy + 0.55, z); }
       else if (kind === 'rod') { model.rotation.set(0.25, 0, 0); m.position.set(x, gy + 0.05, z); }
       else m.position.set(x, gy, z);
@@ -773,8 +966,21 @@ function syncAnimals(list) {
   for (const [id, a] of animalMeshes) if (!seen.has(id)) { scene.remove(a.g); animalMeshes.delete(id); }
 }
 
+function animateBonfire(t) {
+  const B = BONFIRE_FX; if (!B || !S) return;
+  const f = (S.bonfire || 0) / 100, lit = f > 0;
+  B.flames.forEach((s, i) => {
+    s.visible = lit; const u = s.userData, k = (t * 1.4 + u.ph) % 1;
+    s.position.set(Math.sin(u.ph + t * 2) * u.r, 0.6 + k * (2.2 + f * 1.6), Math.cos(u.ph + t * 1.7) * u.r);
+    const sz = (1.9 - k * 1.2) * (0.7 + f * 0.6); s.scale.set(sz, sz * 1.3, 1); s.material.opacity = (1 - k) * 0.9;
+  });
+  B.light.intensity = lit ? (2.5 + f * 3) * (0.85 + Math.sin(t * 13) * 0.08 + Math.sin(t * 7.1) * 0.07) : 0;
+  B.embers.material.color.setRGB(lit ? 0.9 : 0.16, lit ? 0.35 : 0.08, lit ? 0.08 : 0.03);
+  B.smoke.material.uniforms.uA.value = lit ? 0.5 + f * 0.5 : 0;
+}
 function animateStory(dt, t) {
   if (!S || !heli) return;
+  animateBonfire(t);
   const k = 1 - Math.exp(-10 * dt);
   // animals
   for (const a of animalMeshes.values()) {
@@ -819,22 +1025,15 @@ function animateStory(dt, t) {
     bunkerRoom.visible = !!inB;
     const L = bunkerRoom.userData.light;
     L.intensity = inB ? (S.impact && shakeT > 0 ? (Math.random() < 0.3 ? 0.2 : 2.2) : 2.2) : 0;
-  }
-  // missile on day 4 after the sirens
-  const W = WINFO;
-  if (S.day >= W.days && S.siren && !S.impact) {
-    const f = clamp((localM - W.sirenAt) / (W.impactAt - W.sirenAt), 0, 1);
-    const sx = 2000, sy = 2400, sz = -2600, ex = -500, ey = 0, ez = -2300;
-    const ef = f * f;   // it gathers speed as it comes down
-    missile.position.set(lerp(sx, ex, f), lerp(sy, ey, ef), lerp(sz, ez, f));
-    missile.visible = true; missile.trail.visible = true;
-    const arr = missile.trail.geometry.attributes.position.array;
-    for (let i = 0; i < 60; i++) {
-      const ff = Math.max(0, f - i * 0.006);
-      arr[i * 3] = lerp(sx, ex, ff); arr[i * 3 + 1] = lerp(sy, ey, ff * ff); arr[i * 3 + 2] = lerp(sz, ez, ff);
+    if (inB && S.bk) {
+      const ud = bunkerRoom.userData;
+      ud.cans.forEach((c, i) => (c.visible = i < S.bk.cans));
+      ud.burners.forEach((b, i) => { const [pot, kind] = S.bk.burners[i]; const on = pot >= 0; b.pot.visible = on;
+        b.coilMat.color.setRGB(on ? 1 : 0.2, on ? 0.25 + Math.sin(t * 9 + i) * 0.03 : 0.1, on ? 0.08 : 0.08); });
+      const worn = S.players.filter((q) => q.gc).length;
+      ud.geigers.forEach((g2, i) => (g2.visible = i < Math.max(0, 6 - worn)));
     }
-    missile.trail.geometry.attributes.position.needsUpdate = true;
-  } else { missile.visible = false; missile.trail.visible = false; }
+  }
   // impact
   if (S.impact && !impactSeen) {
     impactSeen = true; shakeT = 5;
@@ -843,10 +1042,6 @@ function animateStory(dt, t) {
     rumble();
   }
   if (!S.impact) impactSeen = false;
-  if (S.impact) {
-    const m = mushroom.material; m.opacity = Math.min(1, m.opacity + dt * 0.5);
-    const s = Math.min(1400, mushroom.scale.x + dt * 160); mushroom.scale.set(s, s * 1.15, 1); mushroom.position.y = 150 + s * 0.42;
-  } else { mushroom.material.opacity = 0; mushroom.scale.set(10, 10, 1); }
   // tools in hand
   const p = myState();
   const nearHole = p && p.rod && S.day >= 3 && WINFO.holes.some(([x, z]) => Math.hypot(x - me.x, z - me.z) < 5);
@@ -878,7 +1073,13 @@ function storyTargets(out) {
   if (S.day >= 4 && heli) { const hp = heli.g.position; if (Math.hypot(hp.x - me.x, hp.z - me.z) < 7) out.push({ kind: 'heli', x: hp.x, z: hp.z, y: hp.y + 1.5, big: true }); }
   const b = bunkerXZ();
   if (b && (S.day >= 4 || p.inB)) {
-    if (p.inB) out.push({ kind: 'bunker', x: me.x, z: me.z + 3.2, y: me.y + 1.2, big: true });
+    if (p.inB) {
+      const fl = roomFloor(), at = ([lx, lz, ly]) => ({ x: b[0] + lx, z: b[1] + lz, y: fl + ly });
+      out.push({ kind: 'bunker', ...at(BK_LADDER) });
+      out.push({ kind: 'bk_can', ...at(BK_CAN) });
+      out.push({ kind: 'bk_geiger', ...at(BK_GEIGER) });
+      BK_BURNERS.forEach((pos, i) => out.push({ kind: 'bk_burner', i, ...at(pos) }));
+    }
     else if (Math.hypot(b[0] - me.x, b[1] - me.z) < 4.5) out.push({ kind: 'bunker', x: b[0], z: b[1], y: heightFn(b[0], b[1]) + 0.6, big: true });
   }
 }
@@ -908,8 +1109,21 @@ function storyPrompt(t, p) {
     return [null, 'Engine running - stay close to a radio'];
   }
   if (t.kind === 'bunker') {
-    if (p.inB) return S.siren && !S.impact ? [null, 'Stay inside - the missile is coming!'] : ['E', 'Climb the ladder out'];
+    if (p.inB) {
+      if (S.siren && !S.impact) return [null, 'Stay inside - the bomb is coming!'];
+      if (S.impact && !S.clear) return [null, `Hatch locked - fallout outside. Opens in ${fmtDur((WINFO.hatchTod - localTod + 1440) % 1440, S.rate)}`];
+      return ['E', p.gc ? 'Climb the ladder out' : 'Climb out (take a Geiger counter first!)'];
+    }
+    if (S.impact && !S.clear) return [null, 'The hatch is sealed from inside'];
     return ['E', 'Open the hatch and climb into the bunker'];
+  }
+  if (t.kind === 'bk_can') return p.can ? [null, 'Already holding a can - cook it on a burner'] : S.bk.cans > 0 ? ['E', `Take a can of food (${S.bk.cans} on the shelves)`] : [null, 'The shelves are empty'];
+  if (t.kind === 'bk_geiger') return p.gc ? [null, 'You are wearing a Geiger counter'] : ['E', 'Clip on a Geiger counter'];
+  if (t.kind === 'bk_burner') {
+    const [pot, kind] = S.bk.burners[t.i];
+    if (pot >= 0 && kind) { const need = FOOD_TIME[kind]; return pot >= need ? ['E', `Eat the hot ${FOOD_NAMES[kind]}`] : [null, `Burner ${t.i + 1}: ${FOOD_NAMES[kind]} ${Math.round(pot / need * 100)}%`]; }
+    if (p.meat || p.fish || p.can) return ['E', `Cook ${p.meat ? 'venison' : p.fish ? 'trout' : 'the can'} on burner ${t.i + 1}` + cookChoices(p)];
+    return [null, `Electric burner ${t.i + 1} (battery powered) - grab a can from the shelves`];
   }
   return null;
 }
@@ -920,6 +1134,7 @@ function storyInteract(t) {
   else if (t.kind === 'hole') send({ t: 'act', a: 'fish', i: t.i });
   else if (t.kind === 'heli') send({ t: 'act', a: 'heli' });
   else if (t.kind === 'bunker') send({ t: 'act', a: 'bunker' });
+  else if (t.kind === 'bk_can' || t.kind === 'bk_geiger' || t.kind === 'bk_burner') send({ t: 'act', a: t.kind, i: t.i });
   else return false;
   return true;
 }
@@ -930,14 +1145,22 @@ function storyHud(p) {
   if (d === 1) tick(false, 'Keep the stoves lit through the 2 AM gale');
   if (d >= 2 && d < 4) { tick(!!p.axe, 'Find an axe (chopping block outside each cabin)'); tick(false, 'Hunt deer or rabbits, cook the meat on a stove'); }
   if (d === 3) { tick(!!p.rod, 'Find a fishing rod (Frozen Lake dock)'); tick(false, 'Fish at an ice hole on the lake, cook the fish'); }
-  if (d >= 4) {
+  if (d === 4 || (d === 5 && !S.siren)) {
     const H = S.heli;
     ['battery', 'fuel', 'rotor'].forEach((k, i) => tick(H.parts[i], `Helicopter ${PART_NAMES[k]} (${PART_FROM[k]})`));
     tick(H.run, 'Get the helicopter running');
-    if (S.siren) {
-      tick(!!p.kb, 'Listen to a cabin\'s solar radio');
-      tick(!!p.inB, 'Get into the bunker' + (S.impact ? '' : ` - impact in ${fmtDur(W.impactAt - S.m)}`));
-    }
+  }
+  if (d === 5 && !S.siren) tick(false, 'Stay near a cabin\'s solar radio this morning');
+  if (d === 5 && S.siren && !S.impact) {
+    tick(!!p.kb, 'Listen to a cabin\'s solar radio');
+    tick(!!p.inB, `Get into the bunker - impact in ${fmtDur((W.impactTod - localTod + 1440) % 1440, S.rate)}`);
+    if (S.heli.run) tick(false, 'Or fly there: the helicopter is running');
+  }
+  if (d === 5 && S.impact && !p.lost) {
+    tick(S.clear, S.clear ? 'The fallout has settled' : `Wait out the fallout - hatch opens in ${fmtDur((W.hatchTod - localTod + 1440) % 1440, S.rate)}`);
+    tick(!!p.gc, 'Clip on a Geiger counter (by the ladder)');
+    tick(false, 'Cook canned food on the electric burners');
+    if (S.clear) tick(false, 'Climb out and walk the ash until 6 PM');
   }
   $('objList').innerHTML = rows.join('');
   $('objDay').textContent = `Day ${d} of ${W.days}`;
@@ -949,11 +1172,11 @@ function storyHud(p) {
   $('inv').classList.toggle('hidden', !inv.length);
   $('lostOv').classList.toggle('hidden', !p.lost || S.phase === 'dawn');
   $('flyOv').classList.toggle('hidden', !(p.fly > 0));
-  $('bunkerOv').classList.toggle('hidden', !(p.inB && S.impact) || S.phase === 'dawn');
+  $('bunkerOv').classList.toggle('hidden', !(p.inB && S.impact && impactAge < 12) || S.phase === 'dawn');
   // day banner
   if (d !== lastDay) {
     lastDay = d;
-    const sub = { 1: 'Keep the stoves lit through the 2 AM gale.', 2: 'Animals are out. Find an axe and hunt.', 3: 'The ice is thick. Find a rod and go fishing.', 4: 'Get the helicopter running. Stay near a radio.' }[d];
+    const sub = { 1: 'Keep the stoves lit through the 2 AM gale.', 2: 'Animals are out. Find an axe and hunt.', 3: 'The ice is thick. Find a rod and go fishing.', 4: 'Race to get the helicopter running.', 5: 'Something is wrong. Stay near a radio.' }[d];
     $('bannerDay').textContent = `Day ${d}`; $('bannerSub').textContent = sub;
     const b = $('banner'); b.classList.remove('hidden'); b.style.opacity = 1;
     clearTimeout(b._t); b._t = setTimeout(() => { b.style.opacity = 0; setTimeout(() => b.classList.add('hidden'), 900); }, 5500);
@@ -1003,6 +1226,20 @@ function staticBurst() { noiseBurst(0.6, 4000, 0.15); }
 function rumble() { noiseBurst(6, 120, 1.2); }
 function chop() { noiseBurst(0.12, 1800, 0.35); }
 
+// walk up to a log and it jumps into your arms - no aiming needed
+let pickupCd = 0;
+function autoPickup(dt) {
+  pickupCd -= dt;
+  const P = myState(); if (!P || pickupCd > 0 || P.c >= 4 || P.inB || P.f > 0 || P.lost) return;
+  let best = null, bd = 1.9;
+  for (const m of logMeshes.values()) {
+    if (m.userData.asked && performance.now() - m.userData.asked < 1500) continue;
+    const d = Math.hypot(m.position.x - me.x, m.position.z - me.z); if (d < bd) { bd = d; best = m; }
+  }
+  if (!best) return;
+  best.userData.asked = performance.now(); pickupCd = 0.3;
+  send({ t: 'act', a: 'pickup', id: best.userData.id });
+}
 let hiSprite = null;
 function highlightTarget() {
   if (!hiSprite) {
@@ -1010,7 +1247,7 @@ function highlightTarget() {
     hiSprite.renderOrder = 4; scene.add(hiSprite);
   }
   const t = target;
-  if (!t || t.big || t.kind === 'animal' || t.kind === 'item' || t.kind === 'stove' || t.kind === 'woodbox' || t.kind === 'pantry' || t.kind === 'candle' || t.kind === 'radio' || t.kind === 'door') { hiSprite.visible = false; return; }
+  if (!t || t.big || t.kind === 'bonfire' || t.kind.startsWith('bk_') || t.kind === 'animal' || t.kind === 'item' || t.kind === 'stove' || t.kind === 'woodbox' || t.kind === 'pantry' || t.kind === 'candle' || t.kind === 'radio' || t.kind === 'door') { hiSprite.visible = false; return; }
   hiSprite.visible = true; hiSprite.position.set(t.x, t.y + 0.35, t.z);
   const s = 1.3 + Math.sin(clockU.value * 6) * 0.15; hiSprite.scale.set(s, s, 1);
 }
@@ -1046,7 +1283,9 @@ function makeAvatar(p) {
 }
 
 // ---------------------------------------------------------------- network
-let ws, myId = null, world = null, S = null, nightSeconds = 720, localM = 0;
+let ws, myId = null, world = null, S = null, nightSeconds = 720, localTod = 1080;
+const nightMin = () => (localTod - 1080 + 1440) % 1440;   // minutes since 6 PM tonight
+const isNight = () => localTod >= 1080 || localTod < 360;
 const me = { x: 0, y: 0, z: 30, vx: 0, vz: 0, vy: 0, yaw: 0, pitch: 0, onGround: true };
 let joined = false;
 
@@ -1118,7 +1357,8 @@ function onWelcome(m) {
   buildWorld(world);
   me.x = SPAWN.x; me.z = SPAWN.z; me.y = groundAt(me.x, me.z);
   me.yaw = Math.atan2(-(cabins[0].x - me.x), -(cabins[0].z - me.z));
-  const gb = $('galeBand'); gb.style.left = (world.galeStart / world.dawn * 100) + '%'; gb.style.width = ((world.galeEnd - world.galeStart) / world.dawn * 100) + '%';
+  const gb = $('galeBand'); gb.style.left = ((720 + world.galeStart) / 1440 * 100) + '%'; gb.style.width = ((world.galeEnd - world.galeStart) / 1440 * 100) + '%';
+  document.querySelector('.night').style.background = 'linear-gradient(90deg, rgba(255,214,140,.28) 0%, rgba(255,214,140,.28) 46%, rgba(255,255,255,.08) 54%, rgba(255,255,255,.08) 100%)';
   $('join').classList.add('hidden'); $('hud').classList.remove('hidden');
   joined = true;
   buildCabinList();
@@ -1130,7 +1370,7 @@ function onWelcome(m) {
 
 function onState(m) {
   S = m;
-  if (Math.abs(localM - m.m) > 1.5) localM = m.m;
+  { const d = Math.abs(localTod - m.tod); if (Math.min(d, 1440 - d) > 1.5) localTod = m.tod; }
   m.cabins.forEach((cs, i) => { if (cabins[i]) cabins[i].state = cs; });
   syncLogs(m.logs);
   syncItems(m.items || []);
@@ -1163,6 +1403,10 @@ addEventListener('keydown', (e) => {
   }
   keys[e.code] = true;
   if (e.code === 'KeyE') interact();
+  if ((e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3') && target && (target.kind === 'stove' || target.kind === 'bk_burner')) {
+    const food = { Digit1: 'meat', Digit2: 'fish', Digit3: 'stew' }[e.code];
+    send({ t: 'act', a: target.kind, cabin: target.cabin, i: target.i, food });
+  }
   if (e.code === 'KeyT' || e.code === 'Enter') { e.preventDefault(); openChat(); }
   if (e.code === 'KeyM') { bigMap = !bigMap; resizeMap(); }
   if (e.code === 'Minus' || e.code === 'NumpadSubtract') setVolume(volume - 0.1, true);
@@ -1203,9 +1447,10 @@ function interactTargets() {
     CANDLES.forEach((cd, k) => add('candle', cd, cd[2], { i: k }));
   });
   storyTargets(out);
+  if (WINFO) { const [bx, bz] = WINFO.bonfire; if (Math.hypot(bx - me.x, bz - me.z) < 5) out.push({ kind: 'bonfire', x: bx, z: bz, y: spawnBase + 1, big: true }); }
   return out;
 }
-const REACH = { door: 2.8, log: 4.0, item: 3.6, animal: 4.0, hole: 3.0, heli: 6.5, bunker: 4.6, radio: 2.8 };
+const REACH = { bonfire: 4.5, bk_can: 2.6, bk_geiger: 2.4, bk_burner: 1.9, door: 2.8, log: 4.0, item: 3.6, animal: 4.0, hole: 3.0, heli: 6.5, bunker: 4.6, radio: 2.8 };
 function findTarget() {
   const fx = -Math.sin(me.yaw), fz = -Math.cos(me.yaw);
   const eye = me.y + 1.62, look = Math.sin(me.pitch);
@@ -1227,6 +1472,13 @@ function myState() { return S ? S.players.find((p) => p.id === myId) : null; }
 function promptFor(t) {
   const p = myState(); if (!p || !t) return null;
   if (t.kind === 'log') return p.c < 4 ? ['E', 'Pick up firewood  (or click)'] : [null, 'Your arms are full (4 logs)'];
+  if (t.kind === 'bonfire') {
+    const lit = S.bonfire > 0;
+    if (S.impact) return [null, 'The bonfire is buried in ash'];
+    if (S.gale > 0.5) return [null, lit ? 'The bonfire' : 'Too windy to light the bonfire'];
+    if (p.c > 0) return S.bonfire > 85 ? [null, 'The bonfire is roaring - warm up here'] : ['E', lit ? 'Throw a log on the bonfire' : 'Relight the bonfire with a log'];
+    return [null, lit ? 'Bonfire - stand close to warm up' : 'The bonfire is out - bring a log to relight it'];
+  }
   const sp = storyPrompt(t, p); if (sp) return sp;
   const cs = cabins[t.cabin].state; if (!cs) return null;
   if (t.kind === 'door') return ['E', cs.door ? 'Close the door (keeps the heat in)' : 'Open the door'];
@@ -1239,7 +1491,7 @@ function promptFor(t) {
     if (cs.pot >= need) return ['E', `Eat the hot ${FOOD_NAMES[pk]}`];
     if (cs.pot < 0 && (p.meat || p.fish || p.can)) {
       const what = p.meat ? 'venison' : p.fish ? 'trout' : 'the can of stew';
-      if (cs.fuel > 0) return ['E', `Cook ${what} on the stove`];
+      if (cs.fuel > 0) return ['E', `Cook ${what}` + cookChoices(p)];
       if (!p.meat && !p.fish) return ['E', 'Set the can on the stove (light it to heat)'];
       if (!(p.c > 0 || cs.wood > 0)) return [null, `Light the stove to cook ${what} - bring firewood`];
     }
@@ -1253,9 +1505,16 @@ function promptFor(t) {
   }
   return null;
 }
+// when you carry more than one kind of food, the prompt offers the number keys
+function cookChoices(p) {
+  const opts = [];
+  if (p.meat) opts.push('1 venison'); if (p.fish) opts.push('2 trout'); if (p.can) opts.push('3 can');
+  return opts.length > 1 ? '   ·   or press ' + opts.join(' · ') : '';
+}
 function interact() {
   const t = target; if (!t || !S) return;
   if (t.kind === 'log') send({ t: 'act', a: 'pickup', id: t.id });
+  else if (t.kind === 'bonfire') send({ t: 'act', a: 'bonfire' });
   else if (storyInteract(t)) return;
   else send({ t: 'act', a: t.kind, cabin: t.cabin, i: t.i });
 }
@@ -1330,7 +1589,7 @@ function movePlayer(dt, frozen) {
   // block steep climbs (valley walls / cliffs)
   if (g - me.y > 0.9 && me.onGround) { me.x = ox; me.z = oz; me.vx *= 0.2; me.vz *= 0.2; g = groundAt(me.x, me.z); }
   if (!frozen && keys.Space && me.onGround) { me.vy = 7.2; me.onGround = false; }
-  me.vy -= 22 * dt; me.y += me.vy * dt;
+  me.vy -= (ASHK > 0.5 ? 10 : 22) * dt; me.y += me.vy * dt;
   if (me.y <= g + 0.02 || (me.onGround && me.y - g < 0.6 && me.vy <= 0)) { me.y = g; me.vy = 0; me.onGround = true; } else me.onGround = false;
 }
 function insideAny() { for (const c of cabins) { const [lx, lz] = toLocal(c, me.x, me.z); if (Math.abs(lx) < CABIN_W / 2 && Math.abs(lz) < CABIN_D / 2) return c; } return null; }
@@ -1339,45 +1598,61 @@ function windVec() { const a = 0.6 + Math.sin(clockU.value * 0.05) * 0.4; return
 // --------------------------------------------------------------- atmosphere
 const C = (h) => new THREE.Color(h);
 const SKY = {
-  dusk: [C(0x29386a), C(0xd88a68)], night: [C(0x03060f), C(0x0e1a30)], dawn: [C(0x3d5d92), C(0xf0a47a)], gale: [C(0x4a5566), C(0x6f7b8c)],
+  day: [C(0x4f8fd6), C(0xd9e8f6)], dusk: [C(0x29386a), C(0xd88a68)], night: [C(0x03060f), C(0x0e1a30)], dawn: [C(0x3d5d92), C(0xf0a47a)], gale: [C(0x4a5566), C(0x6f7b8c)],
 };
-const tmpA = new THREE.Color(), tmpB = new THREE.Color(), fogC = new THREE.Color();
+// how dark it is (0 day .. 1 night) and how much sunrise/sunset colour there is
+function skyState(t) {
+  if (t >= 450 && t < 990) return { dark: 0, warm: 0, eve: false };
+  if (t >= 990 && t < 1170) { const k = (t - 990) / 180; return { dark: smooth(0.1, 1, k), warm: Math.sin(k * Math.PI), eve: true }; }
+  if (t >= 300 && t < 450) { const k = (t - 300) / 150; return { dark: 1 - smooth(0, 0.9, k), warm: Math.sin(k * Math.PI), eve: false }; }
+  return { dark: 1, warm: 0, eve: false };
+}
+const ASH_HI = new THREE.Color(0x4a4640), ASH_LO = new THREE.Color(0x8c8378);
+const tmpA = new THREE.Color(), tmpB = new THREE.Color(), fogC = new THREE.Color(), SUNC = new THREE.Color(0xfff1d8);
 const SKY_BLAST_LO = new THREE.Color(0xff7a2a), SKY_BLAST_HI = new THREE.Color(0x6a2a1a);
 let impactAge = 0;
 function atmosphere(dt) {
-  const m = localM, gale = S ? S.gale : 0;
-  const dark = m < 150 ? smooth(0, 150, m) : m > 640 ? 1 - smooth(640, 720, m) * 0.8 : 1;
-  const dawnMix = smooth(640, 720, m);
-  tmpA.copy(SKY.dusk[0]).lerp(SKY.night[0], dark); tmpB.copy(SKY.dusk[1]).lerp(SKY.night[1], dark);
-  if (m > 640) { tmpA.lerp(SKY.dawn[0], dawnMix * 0.8); tmpB.lerp(SKY.dawn[1], dawnMix * 0.8); }
+  const gale = S ? S.gale : 0;
+  const { dark, warm, eve } = skyState(localTod);
+  tmpA.copy(SKY.day[0]).lerp(SKY.night[0], dark); tmpB.copy(SKY.day[1]).lerp(SKY.night[1], dark);
+  const tint = eve ? SKY.dusk : SKY.dawn;
+  tmpA.lerp(tint[0], warm * 0.7); tmpB.lerp(tint[1], warm * 0.85);
   const gn = 1 - dark * 0.55;
   tmpA.lerp(tmpC(SKY.gale[0], gn), gale); tmpB.lerp(tmpC(SKY.gale[1], gn), gale);
-  if (S && S.impact) {             // the far-off blast lights the sky, then fades
-    impactAge += dt; const glow = Math.max(0, 1 - impactAge / 120);
+  if (S && S.impact) {             // the blast lights the sky, then fades
+    impactAge = ((localTod - WINFO.impactTod + 1440) % 1440) / (S.rate || 1); const glow = Math.max(0, 1 - impactAge / 60);
     tmpB.lerp(SKY_BLAST_LO, 0.75 * glow); tmpA.lerp(SKY_BLAST_HI, 0.45 * glow);
   } else impactAge = 0;
   if (S && S.siren && !S.impact) tmpB.lerp(SKY_BLAST_LO, 0.08 + Math.max(0, Math.sin(clockU.value * 0.9)) * 0.06);
+  ASHK = S && S.impact ? smooth(1.5, 7, impactAge) : 0;
+  if (ASHK > 0) { tmpA.lerp(ASH_HI, ASHK * 0.9); tmpB.lerp(ASH_LO, ASHK * 0.9); }
+  applyAsh(ASHK);
   sky.material.uniforms.top.value.copy(tmpA); sky.material.uniforms.bot.value.copy(tmpB);
   fogC.copy(tmpB).lerp(tmpA, 0.3);
   scene.fog.color.copy(fogC);
   const inside = insideAny();
-  scene.fog.density = lerp(lerp(0.0045, 0.0075, dark), inside ? 0.02 : 0.05, gale);
+  scene.fog.density = lerp(lerp(lerp(0.0028, 0.0075, dark), 0.0065, ASHK), inside ? 0.02 : 0.05, gale);
   stars.material.opacity = dark * (1 - gale);
-  moon.material.opacity = dark * (1 - gale) * 0.95;
+  moon.material.opacity = (dark > 0.5 ? dark : 1 - dark) * (1 - gale) * 0.95;
+  moon.material.color.set(dark > 0.5 ? 0xffffff : 0xfff2c8);   // the moon by night, the sun by day
   stars.visible = moon.visible = snow.visible = !inside;
   sky.position.copy(camera.position); stars.position.copy(camera.position);
-  moon.position.set(camera.position.x - 380, camera.position.y + 420, camera.position.z - 520);
-  hemi.intensity = lerp(1.05, 0.32, dark) * (1 - gale * 0.25);
+  if (dark > 0.5) moon.position.set(camera.position.x - 380, camera.position.y + 420, camera.position.z - 520);
+  else { const sa = ((localTod - 360) / 720) * Math.PI; moon.position.set(camera.position.x + Math.cos(sa) * 600, camera.position.y + 120 + Math.sin(sa) * 520, camera.position.z - 300); }
+  hemi.intensity = lerp(1.35, 0.32, dark) * (1 - gale * 0.25);
   hemi.color.set(0x8aa4d6).lerp(C(0xaab4c4), gale);
-  moonLight.intensity = 0.45 * (1 - gale * 0.7);
-  frostU.value = 0.3 + gale * 0.6;
+  moonLight.intensity = lerp(1.0, 0.45, dark) * (1 - gale * 0.7);
+  moonLight.color.set(0xbcd0ff).lerp(SUNC, 1 - dark);
+  lantern.distance = 26; lantern.visible = dark > 0.25 || insideAny();
+  frostU.value = (0.3 + gale * 0.6) * (1 - ASHK);
   terrainMat.color.set(0xffffff).lerp(C(0xd6e4ff), gale * 0.6);
   // snow
   const u = snow.material.uniforms, w = windVec();
   u.uCam.value.copy(camera.position);
   u.uWind.value.set(w.x * gale * 1.8 + 0.4, w.y * gale * 1.8);
-  u.uFall.value = 2.2 + gale * 3;
-  u.uDen.value = 0.3 + gale * 0.7;
+  u.uFall.value = lerp(2.2 + gale * 3, 0.7, ASHK);
+  u.uDen.value = lerp(0.3 + gale * 0.7, 0.75, ASHK);
+  u.uCol.value.set(0xffffff).lerp(ASH_LO, ASHK);
   u.uBox.value.set(inside ? 40 : 70, 36, inside ? 40 : 70);
   // frost vignette
   const p = myState();
@@ -1421,6 +1696,7 @@ function animateAvatars(dt, t) {
     g.position.x = lerp(g.position.x, p.x, k); g.position.z = lerp(g.position.z, p.z, k); g.position.y = lerp(g.position.y, p.y, k);
     let d = p.ry - g.rotation.y; d = Math.atan2(Math.sin(d), Math.cos(d)); g.rotation.y += d * k;
     g.children[0].position.y = 0.78 + (moving ? Math.abs(Math.sin(t * 9)) * 0.06 : 0);
+    a.wasMoving = moving;
     a.back.forEach((l, i) => (l.visible = i < p.c));
     a.coat.color.copy(a.base); if (p.f > 0) a.coat.color.lerp(C(0xcfe9ff), 0.85);
     g.rotation.z = p.f > 0 || p.lost ? 0.25 : 0;
@@ -1430,28 +1706,36 @@ function animateAvatars(dt, t) {
 }
 
 // --------------------------------------------------------------------- hud
-function fmtClock(m) { const tot = 18 * 60 + Math.floor(m); let h = Math.floor(tot / 60) % 24; const mm = tot % 60; const ap = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12; return `${h}:${String(mm).padStart(2, '0')} ${ap}`; }
-function fmtDur(gm) { const s = Math.max(0, gm * nightSeconds / 720); return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`; }
+function fmtClock(m) { const tot = Math.floor(m) % 1440; let h = Math.floor(tot / 60) % 24; const mm = tot % 60; const ap = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12; return `${h}:${String(mm).padStart(2, '0')} ${ap}`; }
+function fmtDur(gm, rate) { const s = Math.max(0, rate ? gm / rate : gm * nightSeconds / 720); return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`; }
 function buildCabinList() {
   $('cabList').innerHTML = cabins.map((c, i) => `<div class="cab" id="cab${i}"><div class="row"><span class="nm"><span class="dot" style="background:${REGION_COL[c.region]}"></span>${c.name}</span><span class="meta" id="cabM${i}"></span></div><div class="bar"><i id="cabB${i}"></i></div></div>`).join('');
 }
 function updateHud() {
   if (!S || !world) return;
   const p = myState(); if (!p) return;
-  $('clockT').textContent = fmtClock(localM);
+  $('clockT').textContent = fmtClock(localTod);
   const ph = $('clockP');
   const finaleDay = S.day >= world.days;
   $('galeBand').style.display = finaleDay ? 'none' : '';
   if (S.phase === 'dawn') { ph.textContent = finaleDay ? 'The valley is silent' : 'Dawn — the gale has passed'; ph.className = 'ph'; }
+  else if (finaleDay && S.impact) {
+    if (!S.clear) { ph.textContent = `FALLOUT · hatch opens in ${fmtDur((world.hatchTod - localTod + 1440) % 1440, S.rate)}`; ph.className = 'ph gale'; }
+    else { ph.textContent = `Ash everywhere · night falls in ${fmtDur((1080 - localTod + 1440) % 1440, S.rate)}`; ph.className = 'ph warn'; }
+  }
+  else if (finaleDay && S.siren) { ph.textContent = `AIR RAID · impact in ${fmtDur((world.impactTod - localTod + 1440) % 1440, S.rate)}`; ph.className = 'ph gale'; }
+  else if (!isNight()) {
+    const left = (1080 - localTod + 1440) % 1440;
+    ph.textContent = `Daylight · night falls in ${fmtDur(left, S.rate)}${finaleDay ? '' : ''}`; ph.className = left < 70 ? 'ph warn' : 'ph';
+  }
   else if (finaleDay) {
     if (S.impact) { ph.textContent = 'After the blast'; ph.className = 'ph'; }
-    else if (S.siren) { ph.textContent = `AIR RAID · impact in ${fmtDur(world.impactAt - S.m)}`; ph.className = 'ph gale'; }
     else { ph.textContent = 'No gale tonight · stay near a radio'; ph.className = 'ph'; }
   }
   else if (S.m >= world.galeStart && S.m < world.galeEnd) { ph.textContent = `ICY GALE · ends in ${fmtDur(world.galeEnd - S.m)}`; ph.className = 'ph gale'; }
   else if (S.m < world.galeStart) { const left = world.galeStart - S.m; ph.textContent = `Gale arrives in ${fmtDur(left)}`; ph.className = left < 90 ? 'ph warn' : 'ph'; }
-  else { ph.textContent = `Dawn in ${fmtDur(world.dawn - S.m)}`; ph.className = 'ph'; }
-  $('nightNow').style.left = clamp(S.m / world.dawn * 100, 0, 100) + '%';
+  else { ph.textContent = `Sunrise in ${fmtDur(world.dawn - S.m)} - a new day`; ph.className = 'ph'; }
+  $('nightNow').style.left = clamp(((localTod - 360 + 1440) % 1440) / 1440 * 100, 0, 100) + '%';
   $('warmBar').style.width = p.w + '%'; $('warmN').textContent = Math.round(p.w);
   $('hungBar').style.width = p.h + '%'; $('hungN').textContent = Math.round(p.h);
   document.querySelectorAll('#carry .logdot').forEach((d, i) => d.classList.toggle('on', i < p.c));
@@ -1467,15 +1751,15 @@ function updateHud() {
   $('frozenOv').classList.toggle('hidden', !(p.f > 0));
   if (p.f > 0) $('frozenMsg').textContent = `Thawing out by the nearest fire in ${Math.ceil(p.f)}…`;
   const dov = $('dawnOv');
-  if (S.phase === 'dawn' && S.summary) {
-    dov.classList.remove('hidden');
+  if (S.summary) {
+    dov.classList.remove('hidden'); dov.classList.toggle('soft', !S.summary.finale);
     const s = S.summary;
     const head = s.finale
       ? `<div class="big">${s.saved.length ? 'You survived' : 'The valley is silent'}</div><div style="color:var(--dim);margin-top:6px">${s.saved.length} of ${s.players.length} made it into the bunker${s.saved.length ? ': ' + s.saved.map(esc).join(', ') : ''}.</div>`
-      : `<div class="big">Dawn breaks on day ${s.day}</div><div style="color:var(--dim);margin-top:6px">${s.litCabins.length} of 5 cabins still burning${s.litCabins.length ? ': ' + s.litCabins.join(', ') : ''}</div>`;
+      : `<div class="big">Good morning - Day ${s.day + 1}</div><div style="color:var(--dim);margin-top:6px">You made it through night ${s.day}. ${s.litCabins.length} of 5 cabins kept burning${s.litCabins.length ? ': ' + s.litCabins.join(', ') : ''}.</div>`;
     $('dawnCard').innerHTML = `${head}
       <table><tr><th></th><th>Hiker</th>${s.finale ? '<th>Bunker</th>' : ''}<th>Logs</th><th>Hunted</th><th>Fish</th><th>Frozen</th></tr>${s.players.map((r, i) => `<tr><td>${i === 0 ? '★' : ''}</td><td><span class="dot" style="background:${r.color}"></span>${esc(r.name)}</td>${s.finale ? `<td>${r.saved ? '✓' : '✗'}</td>` : ''}<td>${r.logs}</td><td>${r.kills}</td><td>${r.catches}</td><td>${r.freezes}</td></tr>`).join('')}</table>
-      <div style="color:var(--dim);margin-top:12px">${s.finale ? 'A new story begins on Day 1' : `Day ${s.day + 1} begins`} in ${Math.ceil(S.dawnIn)}s</div>`;
+      <div style="color:var(--dim);margin-top:12px">${s.finale ? `A new story begins on Day 1 in ${Math.ceil(S.dawnIn)}s` : 'The sun is up - get moving!'}</div>`;
   } else dov.classList.add('hidden');
 }
 function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
@@ -1581,6 +1865,7 @@ function audioTick(dt, t) {
   // fire crackle near a lit stove
   let near = 0;
   for (const c of cabins) { if (!c.state || c.state.fuel <= 0) continue; const [x, z] = toWorld(c, ...STOVE); near = Math.max(near, 1 - Math.hypot(me.x - x, me.z - z) / 9); }
+  if (S && S.bonfire > 0 && WINFO) near = Math.max(near, 1.2 * (1 - Math.hypot(me.x - WINFO.bonfire[0], me.z - WINFO.bonfire[1]) / 14));
   crackleT -= dt;
   if (near > 0 && crackleT <= 0) {
     crackleT = 0.03 + Math.random() * 0.25;
@@ -1596,7 +1881,7 @@ function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
   clockU.value += dt;
-  if (S && S.phase === 'night') localM += dt * 720 / nightSeconds;
+  if (S && S.phase === 'play') localTod = (localTod + dt * (S.rate || 1)) % 1440;
   const p = myState(), frozen = p && p.f > 0;
   movePlayer(dt, frozen);
   if (p && p.inB && Math.abs(me.y - roomFloor()) > 1) me.y = roomFloor();
@@ -1612,12 +1897,17 @@ function frame(now) {
   animateCabins(clockU.value);
   animateAvatars(dt, clockU.value);
   animateStory(dt, clockU.value);
+  bombTick(dt, clockU.value);
+  puffTick(dt, ASHK);
+  geigerTick(dt);
+  autoPickup(dt);
   highlightTarget();
   updateTags();
   if ((frameN++ & 3) === 0) { drawMap(); if (!$('roster').classList.contains('hidden')) renderRoster(); }
-  if (S) $('clockT').textContent = fmtClock(localM);
+  if (S) $('clockT').textContent = fmtClock(localTod);
   audioTick(dt, clockU.value);
   sirenTick(dt);
+  renderTV();
   renderer.render(scene, camera);
 }
 let frameN = 0;
