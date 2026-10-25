@@ -34,7 +34,7 @@ After day 5 the story starts again from day 1.
 | Key | Does |
 |---|---|
 | WASD / arrows | walk · **Shift** run · **Space** jump |
-| Mouse | look (click the game to grab the mouse, Esc to free it) |
+| Mouse | look (click the game to grab the mouse, Esc to free it) · **wheel** zooms in/out, middle-click resets |
 | **E** or **click** | pick up / use — doors, bonfire, logs, woodbox, stove, cans, candles, radio, axe, rods, ice holes, helicopter, bunker hatch. With an axe, click to swing. |
 | **1 / 2 / 3** | at a stove or burner: cook venison / trout / a can |
 | **− / =** · **N** | volume down / up · mute (or use the slider) |

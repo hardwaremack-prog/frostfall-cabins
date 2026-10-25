@@ -79,6 +79,8 @@
 
   #prompt { position: absolute; left: 50%; bottom: 120px; transform: translateX(-50%); padding: 9px 14px; font-size: 15px; white-space: nowrap; }
   #prompt kbd { margin-right: 6px; font-size: 13px; padding: 4px 8px; }
+  #zoomTag { position: absolute; left: 50%; top: calc(50% + 22px); transform: translateX(-50%); font-size: 13px; padding: 3px 9px; border-radius: 10px;
+    background: rgba(8,12,22,.55); opacity: 0; transition: opacity .2s; text-shadow: 0 1px 2px #000; }
   #cross { position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%;
     background: rgba(255,255,255,.75); box-shadow: 0 0 4px rgba(0,0,0,.6); }
 
@@ -183,7 +185,7 @@
     <div class="keys">
       <kbd>WASD</kbd><span>walk &nbsp;·&nbsp; <kbd>Shift</kbd> run &nbsp;·&nbsp; <kbd>Space</kbd> jump</span>
       <kbd>E</kbd><span>use / pick up · <kbd>Click</kbd> swing the axe · <kbd>M</kbd> map</span>
-      <kbd>−</kbd><span><kbd>=</kbd> volume down / up · <kbd>N</kbd> mute (or use the slider)</span>
+      <kbd>−</kbd><span><kbd>=</kbd> volume · <kbd>N</kbd> mute · <kbd>Wheel</kbd> zoom (middle-click resets)</span>
       <kbd>T</kbd><span>chat &nbsp;·&nbsp; <kbd>Tab</kbd> players &nbsp;·&nbsp; 4-day story: hunt, fish, fly, survive</span>
     </div>
   </div>
@@ -192,6 +194,7 @@
 <div id="hud" class="hidden">
   <div id="tags"></div>
   <div id="cross"></div>
+  <div id="zoomTag"></div>
   <div id="clock" class="panel">
     <div class="t" id="clockT">6:00 PM</div>
     <div class="ph" id="clockP">Dusk</div>

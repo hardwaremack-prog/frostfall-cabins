@@ -1555,8 +1555,29 @@ document.addEventListener('pointerlockchange', () => {
 });
 addEventListener('mousemove', (e) => {
   if (!locked) return;
-  me.yaw -= e.movementX * 0.0022; me.pitch = clamp(me.pitch - e.movementY * 0.0022, -1.45, 1.45);
+  const sens = 0.0022 * (camera ? camera.fov / BASE_FOV : 1);   // slower aim when zoomed in
+  me.yaw -= e.movementX * sens; me.pitch = clamp(me.pitch - e.movementY * sens, -1.45, 1.45);
 });
+// mouse-wheel zoom (binoculars); middle click snaps back
+const BASE_FOV = 70;
+let zoomFov = BASE_FOV, zoomShowT = 0;
+addEventListener('wheel', (e) => {
+  if (!joined || chatting) return;
+  if (e.target.closest && e.target.closest('#volWrap, #chat, #roster')) return;
+  e.preventDefault();
+  zoomFov = clamp(zoomFov * (e.deltaY > 0 ? 1.12 : 1 / 1.12), 12, 85);
+  zoomShowT = 1.6;
+}, { passive: false });
+addEventListener('mousedown', (e) => { if (joined && e.button === 1) { e.preventDefault(); zoomFov = BASE_FOV; zoomShowT = 1.2; } });
+function zoomTick(dt) {
+  if (!camera) return;
+  const f = camera.fov + (zoomFov - camera.fov) * Math.min(1, dt * 10);
+  if (Math.abs(f - camera.fov) > 0.01) { camera.fov = f; camera.updateProjectionMatrix(); }
+  zoomShowT = Math.max(0, zoomShowT - dt);
+  const el = $('zoomTag');
+  el.style.opacity = zoomShowT > 0 ? Math.min(1, zoomShowT * 2) : 0;
+  el.textContent = `🔭 ${(BASE_FOV / camera.fov).toFixed(1)}×`;
+}
 
 // ------------------------------------------------------------- interaction
 let target = null;
@@ -2029,6 +2050,7 @@ function frame(now) {
   atmosphere(dt);
   animateCabins(clockU.value);
   animateAvatars(dt, clockU.value);
+  zoomTick(dt);
   animateStory(dt, clockU.value);
   bombTick(dt, clockU.value);
   puffTick(dt, ASHK);
