@@ -199,7 +199,8 @@ function buildWorld(world) {
     cols[i * 3] = tmp.r; cols[i * 3 + 1] = tmp.g; cols[i * 3 + 2] = tmp.b;
   }
   geo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
-  terrainMat = ashMat(new THREE.MeshLambertMaterial({ vertexColors: true }), 0x77726c);
+  TERRAIN_GEO = geo; TERRAIN_COLORS = cols.slice();
+  terrainMat = new THREE.MeshLambertMaterial({ vertexColors: true });
   scene.add(new THREE.Mesh(geo, terrainMat));
 
   // frozen lake + dock
@@ -229,6 +230,8 @@ function buildWorld(world) {
   for (const c of cabins) buildCabin(c);
   buildLandmarks();
   buildStory(world);
+  for (const c of cabins) c.buildRuinLater();
+  buildAftermath();
   buildSnow();
 
   // floating cabin tags
@@ -289,6 +292,7 @@ function buildTrees() {
     const im = new THREE.InstancedMesh(g, mat, list.length);
     list.forEach((t, i) => { q.setFromEuler(e.set(0, t.ry, 0)); m4.compose(v.set(t.x, t.y, t.z), q, sc.set(t.s, t.s * (0.9 + (i % 7) * 0.04), t.s)); im.setMatrixAt(i, m4); });
     im.instanceMatrix.needsUpdate = true; im.computeBoundingSphere(); scene.add(im);
+    TREE_SETS.push({ im, list });
   }
 }
 
@@ -539,6 +543,7 @@ function buildCabin(c) {
 
   // collision boxes in local space [minX, maxX, minZ, maxZ]
   const e = hw + T;
+  c.buildRuinLater = () => buildRuin(c, Y0, H, hw, hd, T, LOGTEX);
   c.solids = [
     [-e, e, -hd - T, -hd], [-e, -hw, -hd - T, hd + T], [hw, e, -hd - T, hd + T],
     [-e, -0.8, hd, hd + T], [0.8, e, hd, hd + T],
@@ -589,16 +594,16 @@ function buildCabin(c) {
   const stumpTop = new THREE.Mesh(new THREE.CircleGeometry(0.42, 12), new THREE.MeshLambertMaterial({ color: 0xc9a77a })); stumpTop.rotation.x = -Math.PI / 2; stumpTop.position.set(3.6, 0.61, 6.3); g.add(stumpTop);
 }
 
-function makeSmoke(origin) {
-  const n = 28, seeds = new Float32Array(n * 2);
+function makeSmoke(origin, scale = 1) {
+  const n = scale > 2 ? 70 : 28, seeds = new Float32Array(n * 2);
   for (let i = 0; i < n; i++) { seeds[i * 2] = i / n; seeds[i * 2 + 1] = Math.random(); }
   const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3)); g.setAttribute('seed', new THREE.BufferAttribute(seeds, 2));
   const mat = new THREE.ShaderMaterial({
     transparent: true, depthWrite: false,
-    uniforms: { uT: clockU, uO: { value: origin }, uA: { value: 0 }, uWind: { value: new THREE.Vector2(1, 0) }, uCol: { value: new THREE.Color(0x8a8f99) } },
-    vertexShader: `uniform float uT; uniform vec3 uO; uniform vec2 uWind; attribute vec2 seed; varying float vA;
-      void main(){ float t = fract(uT*0.13 + seed.x); vec3 p = uO + vec3(uWind.x*t*t*9. + sin(seed.y*30.+uT)*0.4*t, t*10., uWind.y*t*t*9. + cos(seed.y*20.+uT)*0.4*t);
-        vec4 mv = viewMatrix*vec4(p,1.); gl_Position = projectionMatrix*mv; gl_PointSize = (90. + t*260.)/-mv.z; vA = (1.-t)*smoothstep(0.,0.08,t); }`,
+    uniforms: { uT: clockU, uO: { value: origin }, uA: { value: 0 }, uS: { value: scale }, uWind: { value: new THREE.Vector2(1, 0) }, uCol: { value: new THREE.Color(0x8a8f99) } },
+    vertexShader: `uniform float uT; uniform vec3 uO; uniform vec2 uWind; uniform float uS; attribute vec2 seed; varying float vA;
+      void main(){ float t = fract(uT*0.13/uS + seed.x); vec3 p = uO + vec3(uWind.x*t*t*9.*uS + sin(seed.y*30.+uT)*0.4*t*uS, t*10.*uS, uWind.y*t*t*9.*uS + cos(seed.y*20.+uT)*0.4*t*uS);
+        vec4 mv = viewMatrix*vec4(p,1.); gl_Position = projectionMatrix*mv; gl_PointSize = (90. + t*260.)*uS/-mv.z; vA = (1.-t)*smoothstep(0.,0.08,t); }`,
     fragmentShader: `uniform float uA; uniform vec3 uCol; varying float vA; void main(){ float d = length(gl_PointCoord-0.5); if(d>0.5) discard; gl_FragColor = vec4(uCol, (1.-d*2.)*vA*uA*0.55); }`,
   });
   const pts = new THREE.Points(g, mat); pts.frustumCulled = false; return pts;
@@ -1123,12 +1128,23 @@ function animateStory(dt, t) {
   const H = S.heli, hp = heli.g.position;
   const flying = H.fly > 0;
   const hk = flying ? 1 - Math.exp(-25 * dt) : k;
-  hp.x = lerp(hp.x, H.x, hk); hp.z = lerp(hp.z, H.z, hk);
-  const targetAlt = flying ? Math.min(45, (8 - H.fly) * 18, H.fly * 18) : 0;
-  heli.alt = lerp(heli.alt, Math.max(0, targetAlt), Math.min(1, dt * 2));
-  hp.y = heightFn(hp.x, hp.z) + 0.25 + heli.alt;
+  const P0 = myState();
+  const turnTo = (want, rate) => { let d = want - heli.g.rotation.y; d = Math.atan2(Math.sin(d), Math.cos(d)); heli.g.rotation.y += d * Math.min(1, rate); };
   const bxz = bunkerXZ();
-  if (flying && bxz) { const want = Math.atan2(-(bxz[0] - hp.x), -(bxz[1] - hp.z)); let d = want - heli.g.rotation.y; d = Math.atan2(Math.sin(d), Math.cos(d)); heli.g.rotation.y += d * Math.min(1, dt * 2); }
+  if (heliSim && P0 && P0.seat === 'p') {                 // I'm flying it
+    hp.set(heliSim.x, heliSim.y, heliSim.z); heli.g.rotation.y = heliSim.ry; heli.alt = 0;
+    heli.g.rotation.x = clamp(-heliSim.spd * 0.007, -0.25, 0.25);
+  } else if (H.y !== null && H.y !== undefined) {        // someone else is flying it
+    const hk2 = 1 - Math.exp(-12 * dt);
+    hp.x = lerp(hp.x, H.x, hk2); hp.z = lerp(hp.z, H.z, hk2); hp.y = lerp(hp.y, H.y, hk2); turnTo(H.ry, dt * 10); heli.g.rotation.x = 0;
+  } else {
+    hp.x = lerp(hp.x, H.x, hk); hp.z = lerp(hp.z, H.z, hk);
+    const targetAlt = flying ? Math.min(45, (8 - H.fly) * 18, H.fly * 18) : 0;
+    heli.alt = lerp(heli.alt, Math.max(0, targetAlt), Math.min(1, dt * 2));
+    hp.y = heightFn(hp.x, hp.z) + 0.25 + heli.alt; heli.g.rotation.x = 0;
+    if (flying && bxz) turnTo(Math.atan2(-(bxz[0] - hp.x), -(bxz[1] - hp.z)), dt * 2); else turnTo(H.ry, dt * 4);
+  }
+  if (!H.wreck) heli.g.rotation.z = 0;
   const spinTarget = H.run ? 26 : 0;
   heli.spin = lerp(heli.spin, spinTarget, Math.min(1, dt * 0.8));
   heli.rotor.rotation.y += heli.spin * dt; heli.tail.rotation.x += heli.spin * 1.6 * dt;
@@ -1225,9 +1241,10 @@ function storyPrompt(t, p) {
       const miss = ['battery', 'fuel', 'rotor'].filter((_, i) => !H.parts[i]).map((k) => `${PART_NAMES[k]} (${PART_FROM[k]})`);
       return [null, 'Helicopter needs: ' + miss.join(', ')];
     }
+    if (H.wreck) return [null, 'The helicopter is a burnt-out wreck'];
     if (!H.run) return ['E', 'Start the engine'];
-    if (S.siren && !S.impact) return ['E', 'Fly everyone nearby to the bunker!'];
-    return [null, 'Engine running - stay close to a radio'];
+    if (H.pilot === null || H.pilot === undefined) return ['E', 'Take the controls and fly it!' + (S.siren && !S.impact ? '   ·   F: autopilot everyone to the bunker' : '')];
+    return H.riders.length < 4 ? ['E', `Hop in (${H.riders.length}/4 passenger seats)`] : [null, 'The helicopter is full'];
   }
   if (t.kind === 'bunker') {
     if (p.inB) {
@@ -1250,10 +1267,11 @@ function storyPrompt(t, p) {
 }
 
 function storyInteract(t) {
+  const p = myState() || {};
   if (t.kind === 'item') send({ t: 'act', a: 'item', id: t.id });
   else if (t.kind === 'animal') { if (swingT < 0.5) { swingT = 1; chop(); } send({ t: 'act', a: 'hit', id: t.id }); }
   else if (t.kind === 'hole') send({ t: 'act', a: 'fish', i: t.i });
-  else if (t.kind === 'heli') send({ t: 'act', a: 'heli' });
+  else if (t.kind === 'heli') send({ t: 'act', a: !p.part && S.heli.run ? 'heli_board' : 'heli' });
   else if (t.kind === 'bunker') send({ t: 'act', a: 'bunker' });
   else if (t.kind === 'bk_can' || t.kind === 'bk_geiger' || t.kind === 'bk_burner') send({ t: 'act', a: t.kind, i: t.i });
   else return false;
@@ -1373,6 +1391,188 @@ function highlightTarget() {
   if (!t || t.big || t.kind === 'bonfire' || t.kind.startsWith('bk_') || t.kind === 'animal' || t.kind === 'item' || t.kind === 'stove' || t.kind === 'woodbox' || t.kind === 'pantry' || t.kind === 'candle' || t.kind === 'radio' || t.kind === 'door' || t.kind === 'bed') { hiSprite.visible = false; return; }
   hiSprite.visible = true; hiSprite.position.set(t.x, t.y + 0.35, t.z);
   const s = 1.3 + Math.sin(clockU.value * 6) * 0.15; hiSprite.scale.set(s, s, 1);
+}
+
+// ------------------------------------------------------- flying the helicopter
+// The pilot's computer flies it and tells the server where it is; passengers ride along.
+const HELI_SEATS = [[-0.45, 1.25, -0.55], [0.45, 1.25, -0.55], [-0.5, 1.25, 0.55], [0.5, 1.25, 0.55], [0, 1.3, 1.15]];
+let heliSim = null, heliSendAcc = 0;
+const _seatV = new THREE.Vector3();
+function seatWorld(index) {
+  if (!heli) return null;
+  heli.g.updateMatrixWorld();
+  return _seatV.set(...HELI_SEATS[Math.min(index, HELI_SEATS.length - 1)]).applyMatrix4(heli.g.matrixWorld).clone();
+}
+function mySeatIndex(P) {
+  if (!P || !P.seat || !S) return -1;
+  if (P.seat === 'p') return 0;
+  const i = S.heli.riders.indexOf(P.id); return i < 0 ? 1 : i + 1;
+}
+function heliGroundGap() { if (!heli) return 99; const hp = heli.g.position; return hp.y - (heightFn(hp.x, hp.z) + 0.25); }
+function pilotTick(dt) {
+  const P = myState();
+  if (!P || P.seat !== 'p' || !heli) { heliSim = null; return; }
+  const hp = heli.g.position;
+  if (!heliSim) heliSim = { x: hp.x, y: hp.y, z: hp.z, ry: heli.g.rotation.y, spd: 0, vy: 0 };
+  const h = heliSim, typing = chatting;
+  let thr = 0, turn = 0, lift = 0;
+  if (!typing) {
+    if (keys.KeyW || keys.ArrowUp) thr += 1; if (keys.KeyS || keys.ArrowDown) thr -= 1;
+    if (keys.KeyA || keys.ArrowLeft) turn += 1; if (keys.KeyD || keys.ArrowRight) turn -= 1;
+    if (keys.Space) lift += 1; if (keys.ShiftLeft || keys.ShiftRight || keys.KeyC) lift -= 1;
+  }
+  const ground = heightFn(h.x, h.z) + 0.25, gap = h.y - ground;
+  const airborne = gap > 0.4;
+  h.spd += (thr * 32 - h.spd) * Math.min(1, dt * (thr ? 0.8 : 0.5));
+  if (!airborne && lift <= 0) h.spd *= Math.max(0, 1 - dt * 4);       // can't drive along the ground
+  h.ry += turn * 1.25 * dt * (airborne ? 1 : 0.4);
+  h.vy += (lift * 9 - h.vy) * Math.min(1, dt * 2.5);
+  h.x += -Math.sin(h.ry) * h.spd * dt; h.z += -Math.cos(h.ry) * h.spd * dt;
+  h.y += h.vy * dt;
+  const g2 = heightFn(h.x, h.z) + 0.25;
+  if (h.y < g2) { h.y = g2; h.vy = Math.max(0, h.vy); }
+  h.y = Math.min(h.y, g2 + 320);
+  const r = Math.hypot(h.x, h.z); if (r > 420) { h.x *= 420 / r; h.z *= 420 / r; h.spd *= 0.5; }
+  heliSendAcc += dt;
+  if (heliSendAcc > 1 / 15) { heliSendAcc = 0; if (ws && ws.readyState === 1) ws.send(JSON.stringify({ t: 'heli', x: +h.x.toFixed(2), y: +h.y.toFixed(2), z: +h.z.toFixed(2), ry: +h.ry.toFixed(3) })); }
+}
+function seatedMove(P) {
+  const idx = mySeatIndex(P); if (idx < 0) return false;
+  const sw = seatWorld(idx); if (!sw) return false;
+  me.x = sw.x; me.z = sw.z; me.y = sw.y - 1.1; me.vx = me.vz = me.vy = 0; me.onGround = true;
+  return true;
+}
+function heliHint(P) {
+  const gap = heliGroundGap(), landed = gap < 0.9;
+  const alt = Math.max(0, Math.round(gap)), spd = heliSim ? Math.round(Math.abs(heliSim.spd) * 3.6) : 0;
+  if (P.seat === 'p') return [landed ? 'E' : null, `Pilot · ${alt} m up · ${spd} km/h   W/S fly · A/D turn · Space climb · Shift descend` + (landed ? ' · E hop out' : ' · land to hop out')];
+  const pilot = S.players.find((q) => q.id === S.heli.pilot);
+  return [landed ? 'E' : null, `Riding with ${pilot ? pilot.name : 'the pilot'} · ${alt} m up` + (landed ? ' · E hop out' : '')];
+}
+
+// chopper sound: thumping noise that gets louder close up
+let heliSnd = null;
+function heliSoundTick(dt) {
+  if (!actx || !S || !heli) return;
+  const run = S.heli.run && !S.heli.wreck;
+  if (run && !heliSnd) {
+    const len = actx.sampleRate, b = actx.createBuffer(1, len, actx.sampleRate), d = b.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    const src = actx.createBufferSource(); src.buffer = b; src.loop = true;
+    const f = actx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 260;
+    const g = actx.createGain(); g.gain.value = 0;
+    const amp = actx.createGain(); amp.gain.value = 0.5;
+    const lfo = actx.createOscillator(); lfo.frequency.value = 11; const lg = actx.createGain(); lg.gain.value = 0.5;
+    lfo.connect(lg).connect(amp.gain);
+    src.connect(f).connect(amp).connect(g).connect(OUT()); src.start(); lfo.start();
+    heliSnd = { src, g, lfo };
+  }
+  if (heliSnd) {
+    const P = myState(), d = Math.hypot(heli.g.position.x - me.x, heli.g.position.z - me.z, heli.g.position.y - me.y);
+    const target = run ? (P && P.seat ? 0.55 : Math.max(0, 1 - d / 160) * 0.9) * clamp(heli.spin / 26, 0, 1) : 0;
+    heliSnd.g.gain.value += (target - heliSnd.g.gain.value) * Math.min(1, dt * 3);
+    heliSnd.lfo.frequency.value = 6 + clamp(heli.spin / 26, 0, 1) * 7;
+    if (!run && heliSnd.g.gain.value < 0.003) { heliSnd.src.stop(); heliSnd.lfo.stop(); heliSnd = null; }
+  }
+}
+
+// ------------------------------------------------------- the aftermath
+let TREE_SETS = [], TERRAIN_GEO = null, TERRAIN_COLORS = null, TERRAIN_ASH = null, devastated = false, ruinFires = [], ruinSmokes = [], heliMatsBackup = null;
+function buildRuin(c, Y0, H, hw, hd, T, LOGTEX) {
+  // the burnt-out shell left behind after the blast (hidden until then)
+  const r = new THREE.Group(); r.position.copy(c.group.position); r.rotation.copy(c.group.rotation); r.visible = false; scene.add(r);
+  const char = new THREE.MeshLambertMaterial({ map: LOGTEX, color: 0x3a2f28 });
+  const black = new THREE.MeshLambertMaterial({ color: 0x1c1816 });
+  const stone = new THREE.MeshLambertMaterial({ color: 0x4a4744 });
+  const rnd = mulberry(Math.floor(c.x * 7 + c.z * 13));
+  const floor = new THREE.Mesh(new THREE.BoxGeometry(CABIN_W + 0.6, 0.3, CABIN_D + 0.6), black); floor.position.y = 0.15; r.add(floor);
+  const stub = (x, z, w, d) => { const h = 0.3 + rnd() * 1.5; const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), char); m.position.set(x, Y0 + h / 2, z); m.rotation.y = (rnd() - 0.5) * 0.1; r.add(m); };
+  for (let x = -hw; x < hw; x += 1.1) { stub(x + 0.55, -hd - T / 2, 1.1, T); if (Math.abs(x + 0.55) > 1) stub(x + 0.55, hd + T / 2, 1.1, T); }
+  for (let z = -hd; z < hd; z += 1.1) { stub(-hw - T / 2, z + 0.55, T, 1.1); stub(hw + T / 2, z + 0.55, T, 1.1); }
+  const chim = new THREE.Mesh(new THREE.BoxGeometry(0.9, 2.6, 0.9), stone); chim.position.set(STOVE[0], Y0 + 1.3, STOVE[1] - 0.2); r.add(chim);
+  const stove = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.9, 0.8), black); stove.position.set(STOVE[0], Y0 + 0.45, STOVE[1]); stove.rotation.z = 0.12; r.add(stove);
+  const logG = new THREE.CylinderGeometry(0.16, 0.16, 2.4, 7);
+  for (let k = 0; k < 18; k++) {
+    const l = new THREE.Mesh(logG, char), a = rnd() * Math.PI * 2, d = rnd() * 6.5;
+    l.position.set(Math.cos(a) * d, 0.25 + rnd() * 0.4, Math.sin(a) * d); l.rotation.set(Math.PI / 2 + (rnd() - 0.5) * 0.6, rnd() * 3, (rnd() - 0.5) * 0.6); r.add(l);
+  }
+  for (let k = 0; k < 4; k++) { const pl = new THREE.Mesh(new THREE.BoxGeometry(3 + rnd() * 3, 0.15, 1.6), black); pl.position.set((rnd() - 0.5) * 9, 0.5, (rnd() - 0.5) * 8); pl.rotation.set((rnd() - 0.5) * 0.7, rnd() * 3, (rnd() - 0.5) * 0.5); r.add(pl); }
+  for (let k = 0; k < 3; k++) {
+    const f = new THREE.Sprite(new THREE.SpriteMaterial({ map: GLOWTEX || (GLOWTEX = glowSprite()), color: 0xff8a3a, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+    f.position.set((rnd() - 0.5) * 7, 0.8, (rnd() - 0.5) * 6); f.userData.ph = rnd() * 6; r.add(f); ruinFires.push(f);
+  }
+  c.ruin = r;
+  const e = hw + T;
+  c.ruinSolids = [[STOVE[0] - 0.6, STOVE[0] + 0.6, STOVE[1] - 0.6, STOVE[1] + 0.45]];
+}
+function buildAftermath() {
+  // a few columns of black smoke across the valley
+  const rnd = mulberry(SEED + 404);
+  const spots = cabins.map((c) => [c.x + 2, c.z - 1]);
+  for (let k = 0; k < 9; k++) { const a = rnd() * Math.PI * 2, d = 40 + rnd() * 200; spots.push([Math.cos(a) * d, Math.sin(a) * d]); }
+  for (const [x, z] of spots) {
+    if (Math.hypot(x - LAKE.x, z - LAKE.z) < LAKE.r + 5) continue;
+    const sm = makeSmoke(new THREE.Vector3(x, heightFn(x, z) + 1, z), 9); sm.material.uniforms.uCol.value.set(0x4a423b); scene.add(sm); ruinSmokes.push(sm);
+    for (let j = 0; j < 3; j++) {
+      const f = new THREE.Sprite(new THREE.SpriteMaterial({ map: GLOWTEX || (GLOWTEX = glowSprite()), color: 0xff7a2a, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+      const fx = x + (rnd() - 0.5) * 6, fz = z + (rnd() - 0.5) * 6;
+      f.position.set(fx, heightFn(fx, fz) + 0.9, fz); f.userData.ph = rnd() * 6; f.visible = false; scene.add(f); ruinFires.push(f);
+    }
+  }
+}
+function treeMatrix(t, i, fallen, m4) {
+  const q = new THREE.Quaternion(), e = new THREE.Euler(), v = new THREE.Vector3(t.x, t.y, t.z), sc = new THREE.Vector3(t.s, t.s * (0.9 + (i % 7) * 0.04), t.s);
+  q.setFromEuler(e.set(0, t.ry, 0));
+  if (fallen) {
+    const h = ((i * 2654435761) >>> 0) % 100;
+    if (h < 30) { sc.y *= 0.22; }                              // snapped off: a burnt stump
+    else {                                                     // blown flat, pointing away from ground zero
+      const dx = t.x - GZ.x, dz = t.z - GZ.z, d = Math.hypot(dx, dz) || 1;
+      const axis = new THREE.Vector3(dz / d, 0, -dx / d);
+      const tilt = new THREE.Quaternion().setFromAxisAngle(axis, (h < 60 ? 1.5 : 1.1) + (h % 7) * 0.02);
+      q.premultiply(tilt); sc.y *= 0.85;
+    }
+  }
+  return m4.compose(v, q, sc);
+}
+function setDevastation(on) {
+  if (on === devastated) return;
+  devastated = on;
+  const m4 = new THREE.Matrix4();
+  for (const set of TREE_SETS) { set.list.forEach((t, i) => set.im.setMatrixAt(i, treeMatrix(t, i, on, m4))); set.im.instanceMatrix.needsUpdate = true; }
+  for (const c of cabins) { if (c.ruin) { c.ruin.visible = on; c.group.visible = !on; } }
+  if (TERRAIN_GEO) {
+    const col = TERRAIN_GEO.attributes.color;
+    if (on && !TERRAIN_ASH) {
+      const P = TERRAIN_GEO.attributes.position; TERRAIN_ASH = new Float32Array(TERRAIN_COLORS.length);
+      for (let i = 0; i < P.count; i++) {
+        const x = P.getX(i), z = P.getZ(i), d = Math.hypot(x - GZ.x, z - GZ.z);
+        const n = vnoise(x * 0.06, z * 0.06) * 0.5 + 0.5, streak = Math.sin(Math.atan2(z - GZ.z, x - GZ.x) * 23) * 0.5 + 0.5;
+        let v = 0.42 + n * 0.12;
+        v *= 1 - 0.78 * Math.exp(-(d * d) / (2 * 150 * 150));          // scorched black near ground zero
+        v *= 1 - 0.18 * streak * Math.exp(-d / 260);                     // burn streaks radiating out
+        TERRAIN_ASH[i * 3] = v * 1.02; TERRAIN_ASH[i * 3 + 1] = v * 0.98; TERRAIN_ASH[i * 3 + 2] = v * 0.94;
+      }
+    }
+    col.array.set(on ? TERRAIN_ASH : TERRAIN_COLORS); col.needsUpdate = true;
+  }
+  ruinSmokes.forEach((s) => (s.visible = on));
+  if (heli) {
+    if (!heliMatsBackup) { heliMatsBackup = []; heli.g.traverse((o) => { if (o.material && o.material.color) heliMatsBackup.push([o.material, o.material.color.clone()]); }); }
+    heliMatsBackup.forEach(([m, c]) => m.color.copy(c).multiplyScalar(on && S && S.heli.wreck ? 0.18 : 1));
+  }
+}
+function aftermathTick(t) {
+  const on = !!(S && S.impact && ASHK > 0.35);
+  setDevastation(on);
+  if (!on) { ruinFires.forEach((f) => (f.visible = false)); return; }
+  const burn = clamp(1 - (impactAge - 60) / 420, 0, 1);     // fires slowly die down
+  ruinFires.forEach((f) => {
+    f.visible = burn > 0.02; const k = (t * 1.3 + f.userData.ph) % 1;
+    const s = (1.6 + Math.sin(t * 9 + f.userData.ph) * 0.3) * burn * 1.6; f.scale.set(s, s * 1.4, 1); f.material.opacity = 0.7 + 0.3 * (1 - k);
+  });
+  ruinSmokes.forEach((s) => (s.material.uniforms.uA.value = 1.4 * Math.max(0.35, burn)));
+  if (heli && S.heli.wreck) { heli.g.rotation.z = 0.45; heli.spin = 0; }
 }
 
 // ------------------------------------------------------------------ avatars
@@ -1525,7 +1725,12 @@ addEventListener('keydown', (e) => {
     return;
   }
   keys[e.code] = true;
-  if (e.code === 'KeyE') interact();
+  if (e.code === 'KeyE') {
+    const P = myState();
+    if (P && P.seat) { if (heliGroundGap() < 0.9) send({ t: 'act', a: 'heli_exit' }); else toast('Land first - hold Shift to come down.', 2500); }
+    else interact();
+  }
+  if (e.code === 'KeyF' && target && target.kind === 'heli' && S && S.siren && !S.impact) send({ t: 'act', a: 'heli_auto' });
   if ((e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3') && target && (target.kind === 'stove' || target.kind === 'bk_burner')) {
     const food = { Digit1: 'meat', Digit2: 'fish', Digit3: 'stew' }[e.code];
     send({ t: 'act', a: target.kind, cabin: target.cabin, i: target.i, food });
@@ -1585,7 +1790,7 @@ function interactTargets() {
   const out = [];
   for (const m of logMeshes.values()) out.push({ kind: 'log', id: m.userData.id, x: m.position.x, z: m.position.z, y: m.position.y });
   cabins.forEach((c, i) => {
-    if (Math.hypot(me.x - c.x, me.z - c.z) > 12) return;
+    if (devastated || Math.hypot(me.x - c.x, me.z - c.z) > 12) return;
     const add = (kind, [lx, lz], y, extra) => { const [x, z] = toWorld(c, lx, lz); out.push({ kind, cabin: i, x, z, y: c.base + y, ...extra }); };
     add('stove', STOVE, 1.2); add('woodbox', WOODBOX, 0.8); add('pantry', PANTRY, 1.3); add('radio', RADIO, 1.75); add('door', [0, CABIN_D / 2 + 0.18], 1.2); add('bed', [-2.8, 2.9], 0.6);
     CANDLES.forEach((cd, k) => add('candle', cd, cd[2], { i: k }));
@@ -1676,7 +1881,7 @@ function collide() {
   for (const c of cabins) {
     if (Math.abs(me.x - c.x) > 12 || Math.abs(me.z - c.z) > 12) continue;
     let [lx, lz] = toLocal(c, me.x, me.z);
-    const solids = c.doorAngle < 0.6 ? [...c.solids, [-0.8, 0.8, CABIN_D / 2, CABIN_D / 2 + 0.35]] : c.solids;
+    const solids = devastated && c.ruinSolids ? c.ruinSolids : c.doorAngle < 0.6 ? [...c.solids, [-0.8, 0.8, CABIN_D / 2, CABIN_D / 2 + 0.35]] : c.solids;
     for (const [x0, x1, z0, z1] of solids) {
       const cx = clamp(lx, x0, x1), cz = clamp(lz, z0, z1);
       const dx = lx - cx, dz = lz - cz, d = Math.hypot(dx, dz);
@@ -1709,6 +1914,7 @@ function movePlayer(dt, frozen) {
     return;
   }
   if (P && P.lost) { me.vx = me.vz = 0; return; }
+  if (P && P.seat && seatedMove(P)) return;
   if (P && P.inB) {                // inside the shelter: walk around the room
     const b = bunkerXZ(), fl = roomFloor();
     let ix = 0, iz = 0;
@@ -1758,7 +1964,7 @@ function skyState(t) {
   if (t >= 300 && t < 450) { const k = (t - 300) / 150; return { dark: 1 - smooth(0, 0.9, k), warm: Math.sin(k * Math.PI), eve: false }; }
   return { dark: 1, warm: 0, eve: false };
 }
-const ASH_HI = new THREE.Color(0x4a4640), ASH_LO = new THREE.Color(0x8c8378);
+const ASH_HI = new THREE.Color(0x2e2925), ASH_LO = new THREE.Color(0x6e6358);
 const tmpA = new THREE.Color(), tmpB = new THREE.Color(), fogC = new THREE.Color(), SUNC = new THREE.Color(0xfff1d8);
 const SKY_BLAST_LO = new THREE.Color(0xff7a2a), SKY_BLAST_HI = new THREE.Color(0x6a2a1a);
 let impactAge = 0;
@@ -1782,7 +1988,7 @@ function atmosphere(dt) {
   fogC.copy(tmpB).lerp(tmpA, 0.3);
   scene.fog.color.copy(fogC);
   const inside = insideAny();
-  scene.fog.density = lerp(lerp(lerp(0.0028, 0.0075, dark), 0.0065, ASHK), inside ? 0.02 : 0.05, gale);
+  scene.fog.density = lerp(lerp(lerp(0.0028, 0.0075, dark), 0.0095, ASHK), inside ? 0.02 : 0.05, gale);
   stars.material.opacity = dark * (1 - gale);
   moon.material.opacity = (dark > 0.5 ? dark : 1 - dark) * (1 - gale) * 0.95;
   moon.material.color.set(dark > 0.5 ? 0xffffff : 0xfff2c8);   // the moon by night, the sun by day
@@ -1790,7 +1996,7 @@ function atmosphere(dt) {
   sky.position.copy(camera.position); stars.position.copy(camera.position);
   if (dark > 0.5) moon.position.set(camera.position.x - 380, camera.position.y + 420, camera.position.z - 520);
   else { const sa = ((localTod - 360) / 720) * Math.PI; moon.position.set(camera.position.x + Math.cos(sa) * 600, camera.position.y + 120 + Math.sin(sa) * 520, camera.position.z - 300); }
-  hemi.intensity = lerp(1.35, 0.32, dark) * (1 - gale * 0.25);
+  hemi.intensity = lerp(1.35, 0.32, dark) * (1 - gale * 0.25) * (1 - ASHK * 0.35);
   hemi.color.set(0x8aa4d6).lerp(C(0xaab4c4), gale);
   moonLight.intensity = lerp(1.0, 0.45, dark) * (1 - gale * 0.7);
   moonLight.color.set(0xbcd0ff).lerp(SUNC, 1 - dark);
@@ -1802,7 +2008,7 @@ function atmosphere(dt) {
   u.uCam.value.copy(camera.position);
   u.uWind.value.set(w.x * gale * 1.8 + 0.4, w.y * gale * 1.8);
   u.uFall.value = lerp(2.2 + gale * 3, 0.7, ASHK);
-  u.uDen.value = lerp(0.3 + gale * 0.7, 0.75, ASHK);
+  u.uDen.value = lerp(0.3 + gale * 0.7, 0.95, ASHK);
   u.uCol.value.set(0xffffff).lerp(ASH_LO, ASHK);
   u.uBox.value.set(inside ? 40 : 70, 36, inside ? 40 : 70);
   // frost vignette
@@ -1856,6 +2062,10 @@ function animateAvatars(dt, t) {
     g.rotation.z = p.f > 0 || p.lost ? 0.25 : 0;
     const mine = myState();
     g.visible = !!p.inB === !!(mine && mine.inB) && !(p.fly > 0);
+    if (p.seat && heli) {
+      const sw = seatWorld(p.seat === 'p' ? 0 : Math.max(0, S.heli.riders.indexOf(p.id)) + 1);
+      if (sw) { g.position.set(sw.x, sw.y - 0.75, sw.z); g.rotation.y = heli.g.rotation.y; }
+    }
   }
 }
 
@@ -1899,7 +2109,7 @@ function updateHud() {
     const here = S.players.filter((q) => q.in === i);
     const el = $('cab' + i); el.classList.toggle('here', p.in === i); el.classList.toggle('out', cs.fuel <= 0);
     $('cabB' + i).style.width = cs.fuel + '%';
-    $('cabM' + i).innerHTML = `${cs.fuel > 0 ? Math.round(cs.fuel) + '%' : 'cold'} · wood ${cs.wood}` + (here.length ? `<span class="pips">${here.map((q) => `<b style="background:${q.color}"></b>`).join('')}</span>` : '');
+    $('cabM' + i).innerHTML = devastated ? 'destroyed' : `${cs.fuel > 0 ? Math.round(cs.fuel) + '%' : 'cold'} · wood ${cs.wood}` + (here.length ? `<span class="pips">${here.map((q) => `<b style="background:${q.color}"></b>`).join('')}</span>` : '');
   });
   storyHud(p);
   $('frozenOv').classList.toggle('hidden', !(p.f > 0));
@@ -1943,7 +2153,7 @@ function updateTags() {
     el.style.display = ''; el.style.left = ((proj.x + 1) / 2 * innerWidth) + 'px'; el.style.top = ((1 - proj.y) / 2 * innerHeight) + 'px';
     const lit = c.state && c.state.fuel > 0;
     el.className = 'ctag' + (lit ? ' lit' : '');
-    el.innerHTML = `<b>${c.name}</b>${Math.round(d)} m · ${lit ? 'fire lit' : 'cold'}`;
+    el.innerHTML = `<b>${c.name}</b>${Math.round(d)} m · ${devastated ? 'ruins' : lit ? 'fire lit' : 'cold'}`;
   });
 }
 
@@ -2037,6 +2247,7 @@ function frame(now) {
   clockU.value += dt;
   if (S && S.phase === 'play') localTod = (localTod + dt * (S.rate || 1)) % 1440;
   const p = myState(), frozen = p && p.f > 0;
+  pilotTick(dt);
   movePlayer(dt, frozen);
   if (p && p.inB && Math.abs(me.y - roomFloor()) > 1) me.y = roomFloor();
   const bob = me.onGround && (Math.abs(me.vx) + Math.abs(me.vz) > 1) ? Math.sin(clockU.value * 10) * 0.04 : 0;
@@ -2044,8 +2255,8 @@ function frame(now) {
   camera.rotation.set(me.pitch, me.yaw, frozen ? 0.4 : 0, 'YXZ');
   sendAcc += dt;
   if (sendAcc > 1 / 15) { sendAcc = 0; send({ t: 'pos', x: +me.x.toFixed(2), y: +me.y.toFixed(2), z: +me.z.toFixed(2), ry: +me.yaw.toFixed(3) }); }
-  target = frozen ? null : findTarget();
-  const pr = promptFor(target), pe = $('prompt');
+  target = frozen || (p && p.seat) ? null : findTarget();
+  const pr = p && p.seat ? heliHint(p) : promptFor(target), pe = $('prompt');
   if (pr) { pe.classList.remove('hidden'); pe.innerHTML = (pr[0] ? `<kbd>${pr[0]}</kbd>` : '') + esc(pr[1]); } else pe.classList.add('hidden');
   atmosphere(dt);
   animateCabins(clockU.value);
@@ -2053,6 +2264,8 @@ function frame(now) {
   zoomTick(dt);
   animateStory(dt, clockU.value);
   bombTick(dt, clockU.value);
+  aftermathTick(clockU.value);
+  heliSoundTick(dt);
   puffTick(dt, ASHK);
   geigerTick(dt);
   autoPickup(dt);

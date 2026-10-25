@@ -199,7 +199,8 @@ class Game:
             for _ in range(14):
                 self.spawn_animal("rabbit")
         self.heli = {"parts": [False, False, False], "running": False,
-                     "x": HELIPAD[0], "z": HELIPAD[1], "fly": 0.0, "flyFrom": None}
+                     "x": HELIPAD[0], "z": HELIPAD[1], "fly": 0.0, "flyFrom": None,
+                     "y": None, "ry": 0.6, "pilot": None, "riders": [], "wreck": False}
         for p in self.players.values():
             self.reset_player(p, spawn=True)
         self.emit(DAY_INTRO[self.day])
@@ -297,6 +298,7 @@ class Game:
         p["hitCd"] = 0.0
         p["geiger"] = False
         p["zz"] = False           # voted to sleep till dawn
+        p["seat"] = ""            # "p" pilot / "r" passenger in the helicopter
         p["dose"] = 0.0
         p["saved"] = False
         if spawn:
@@ -471,6 +473,13 @@ class Game:
         return pid
 
     def remove_player(self, pid):
+        p = self.players.get(pid)
+        if p and p.get("seat"):
+            if self.heli["pilot"] == pid:          # nobody flying it now: everyone climbs out
+                for q in list(self.players.values()):
+                    if q["seat"] == "r":
+                        self.leave_heli(q)
+            self.leave_heli(p)
         p = self.players.pop(pid, None)
         self.clients.pop(pid, None)
         if p:
@@ -480,6 +489,12 @@ class Game:
 
     def on_pos(self, p, m):
         if p["frozen"] > 0 or p["lost"] or p["fly"] > 0:
+            return
+        if p["seat"]:
+            try:
+                p["ry"] = float(m["ry"])
+            except (KeyError, TypeError, ValueError):
+                pass
             return
         try:
             x, y, z, ry = float(m["x"]), float(m["y"]), float(m["z"]), float(m["ry"])
@@ -572,7 +587,28 @@ class Game:
             elif all(h["parts"]) and not h["running"]:
                 h["running"] = True
                 self.emit("%s got the helicopter running! The rotors are turning." % p["name"])
-            elif h["running"] and self.siren and not self.impact:
+            return
+        if a == "heli_board":
+            h = self.heli
+            if (not h["running"] or h["wreck"] or h["fly"] > 0 or p["seat"] or p["part"]
+                    or dist2(p["x"], p["z"], h["x"], h["z"]) > 7 ** 2):
+                return
+            if h["pilot"] is None:
+                h["pilot"] = p["id"]
+                p["seat"] = "p"
+                self.emit("%s took the controls of the helicopter." % p["name"])
+            elif len(h["riders"]) < 4:
+                h["riders"].append(p["id"])
+                p["seat"] = "r"
+                self.emit("%s hopped in the helicopter." % p["name"])
+            return
+        if a == "heli_exit":
+            self.leave_heli(p)
+            return
+        if a == "heli_auto":
+            h = self.heli
+            if h["running"] and self.siren and not self.impact and h["pilot"] is None and h["fly"] <= 0 \
+                    and dist2(p["x"], p["z"], h["x"], h["z"]) < 7 ** 2:
                 bx, bz, _ = self.bunker_pos()
                 h["fly"] = 8.0
                 h["flyFrom"] = (h["x"], h["z"])
@@ -761,6 +797,32 @@ class Game:
             return "KVLY Mountain Radio... deer and rabbits are moving through the valley tonight. Another icy gale after 2 AM."
         return "KVLY Mountain Radio... severe weather warning: an icy gale will sweep the valley after 2 AM. Keep your stove burning."
 
+    def leave_heli(self, p):
+        h = self.heli
+        if not p["seat"]:
+            return
+        if h["pilot"] == p["id"]:
+            h["pilot"] = None
+            h["y"] = None                       # it settles where it landed
+        if p["id"] in h["riders"]:
+            h["riders"].remove(p["id"])
+        p["seat"] = ""
+        a = h["ry"] + math.pi / 2
+        p["x"], p["z"] = h["x"] + math.sin(a) * 3.0, h["z"] + math.cos(a) * 3.0
+        p["teleport"] = True
+
+    def on_heli(self, p, m):
+        """The pilot's computer flies the helicopter and reports where it is."""
+        h = self.heli
+        if h["pilot"] != p["id"]:
+            return
+        try:
+            x, y, z, ry = float(m["x"]), float(m["y"]), float(m["z"]), float(m["ry"])
+        except (KeyError, TypeError, ValueError):
+            return
+        if all(map(math.isfinite, (x, y, z, ry))) and abs(x) < 450 and abs(z) < 450 and -50 < y < 600:
+            h["x"], h["y"], h["z"], h["ry"] = x, y, z, ry
+
     def on_chat(self, p, m):
         text = str(m.get("text", "")).strip()[:120]
         if not text:
@@ -782,6 +844,13 @@ class Game:
             p["meat"] = len(p["meats"])
             p["fish"] = 2
             self.emit("%s raided the freezer." % p["name"])
+        elif cmd == "/heli":                     # skip the parts race and get it running
+            self.heli["parts"] = [True, True, True]
+            self.heli["running"] = True
+            self.heli["wreck"] = False
+            for k in ("battery", "fuel", "rotor"):
+                self.items.pop(k, None)
+            self.emit("%s fixed up the helicopter." % p["name"])
         elif cmd == "/skip":
             if self.day >= STORY_DAYS:
                 self.emit("%s restarted the story." % p["name"])
@@ -798,7 +867,7 @@ class Game:
                 self.emit("%s set the clock to %s." % (p["name"], parts[1]))
         else:
             self.tell(p, {"t": "chat", "from": "Server", "color": "#9fb0c8",
-                          "text": "Commands: /day 1-5, /skip, /time 9:00, /give"})
+                          "text": "Commands: /day 1-5, /skip, /time 9:00, /give, /heli"})
 
     # -- simulation ----------------------------------------------------------
     def step(self, dt):
@@ -888,10 +957,12 @@ class Game:
                         p["catches"] += 1
                         self.emit("%s caught a %s!" % (p["name"], self.rng.choice(
                             ["rainbow trout", "brook trout", "lake perch", "arctic char"])))
-            ci = self.inside_cabin(p["x"], p["z"])
+            ci = self.inside_cabin(p["x"], p["z"]) if not self.impact else -1
             p["inside"] = ci
             if p["inB"]:
                 d = 0.25                              # the shelter is snug
+            elif p["seat"]:
+                d = 0.05                              # the cockpit heater
             elif ci >= 0:
                 cab = self.cabins[ci]
                 shut = not cab["door"]                 # a closed door keeps the heat in
@@ -997,6 +1068,11 @@ class Game:
 
     def step_story(self, dt):
         h = self.heli
+        for q in self.players.values():            # passengers go wherever the helicopter goes
+            if q["seat"]:
+                q["x"], q["z"] = h["x"], h["z"]
+                if h["y"] is not None:
+                    q["y"] = h["y"]
         if h["fly"] > 0:
             h["fly"] = max(0.0, h["fly"] - dt)
             bx, bz, _ = self.bunker_pos()
@@ -1029,6 +1105,9 @@ class Game:
                     p["lost"] = True
                     p["fishT"], p["fishHole"] = 0.0, -1
                     lost.append(p["name"])
+            for q in self.players.values():
+                q["seat"] = ""
+            h["pilot"], h["riders"], h["y"], h["wreck"] = None, [], None, True
             for cab in self.cabins:                    # the blast snuffs out every fire
                 cab["fuel"] = 0.0
                 cab["candles"] = [0.0, 0.0, 0.0]
@@ -1107,7 +1186,7 @@ class Game:
                  "ft": round(p["fishT"], 1), "fh": p["fishHole"],
                  "kb": 1 if p["kb"] else 0, "inB": 1 if p["inB"] else 0,
                  "lost": 1 if p["lost"] else 0, "fly": round(p["fly"], 1),
-                 "ck": p.get("canKind", "stew"), "zz": 1 if p["zz"] else 0,
+                 "ck": p.get("canKind", "stew"), "zz": 1 if p["zz"] else 0, "seat": p["seat"],
                  "gc": 1 if p["geiger"] else 0, "dose": round(p["dose"], 2)}
             if p.pop("teleport", False):
                 d["tp"] = 1
@@ -1130,7 +1209,9 @@ class Game:
             "animals": [[a["id"], a["kind"], round(a["x"], 2), round(a["z"], 2), round(a["ry"], 2),
                          round(a["spd"], 1)] for a in self.animals.values()],
             "heli": {"parts": h["parts"], "run": h["running"], "x": round(h["x"], 2),
-                     "z": round(h["z"], 2), "fly": round(h["fly"], 2)},
+                     "z": round(h["z"], 2), "fly": round(h["fly"], 2),
+                     "y": None if h["y"] is None else round(h["y"], 2), "ry": round(h["ry"], 3),
+                     "pilot": h["pilot"], "riders": h["riders"], "wreck": h["wreck"]},
             "bonfire": round(self.bonfire, 1), "slept": round(self.slept, 1),
             "sleep": list(self.sleep_count()), "sleepWhy": self.sleep_check()[1] if any(q["zz"] for q in self.players.values()) else "",
             "siren": self.siren, "impact": self.impact, "bunker": self.bunker, "clear": self.all_clear,
@@ -1236,6 +1317,8 @@ async def handle_ws(reader, writer, headers):
                     GAME.on_act(p, m)
                 elif t == "chat":
                     GAME.on_chat(p, m)
+                elif t == "heli":
+                    GAME.on_heli(p, m)
     except (asyncio.IncompleteReadError, ConnectionError, OSError):
         pass
     finally:
