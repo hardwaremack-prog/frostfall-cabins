@@ -29,6 +29,14 @@ Time runs continuously. Day 1 starts at 6 PM; every later day starts at **6 AM, 
 
 After day 5 the story starts again from day 1.
 
+## Graphics
+
+Pick a setting on the join screen; everyone can use a different one in the same game.
+
+- **Raspberry Pi** — lighter forest and snow, lower resolution, runs smoothly on a Pi 400/500.
+- **PC / Laptop** — the normal look.
+- **AMD 395 Ultra** — for the AMD Ryzen AI Max+ 395 (or any strong graphics card): soft real-time shadows from the sun and moon, bloom glow on fires, candles and the bomb, a forest about twice as dense, young snowy firs across the ground, heavier snow and higher-resolution rendering. The **AMD 395 Edition** download starts in this mode.
+
 ## Controls
 
 | Key | Does |

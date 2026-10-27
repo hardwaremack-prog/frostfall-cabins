@@ -82,21 +82,70 @@ function toWorld(c, lx, lz) { const co = Math.cos(c.rot), s = Math.sin(c.rot); r
 function toLocal(c, x, z) { const dx = x - c.x, dz = z - c.z, co = Math.cos(c.rot), s = Math.sin(c.rot); return [dx * co - dz * s, dx * s + dz * co]; }
 
 // ---------------------------------------------------------------- renderer
-let quality = store('ffc.quality') || (/aarch64|arm|linux arm/i.test(navigator.platform) ? 'pi' : 'pc');
+// The AMD 395 edition marks its page with <meta name="ffc-edition" content="amd395"> and defaults to Ultra.
+const EDITION = (document.querySelector('meta[name="ffc-edition"]') || {}).content || '';
+const QKEY = EDITION === 'amd395' ? 'ffc.quality.amd395' : 'ffc.quality';
+let quality = store(QKEY) || (EDITION === 'amd395' ? 'ultra' : /aarch64|arm|linux arm/i.test(navigator.platform) ? 'pi' : 'pc');
+const ULTRA = () => quality === 'ultra';
 const canvas = $('view');
 let renderer, scene, camera;
 const frostU = { value: 0.3 };
 const clockU = { value: 0 };
 
 function makeRenderer() {
-  renderer = new THREE.WebGLRenderer({ canvas, antialias: quality === 'pc', powerPreference: 'high-performance' });
-  renderer.setPixelRatio(quality === 'pi' ? 0.85 : Math.min(devicePixelRatio, 1.5));
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: quality !== 'pi', powerPreference: 'high-performance' });
+  renderer.setPixelRatio(quality === 'pi' ? 0.85 : ULTRA() ? Math.max(1.25, Math.min(devicePixelRatio, 2)) : Math.min(devicePixelRatio, 1.5));
+  if (ULTRA()) { renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap; }
   renderer.setSize(innerWidth, innerHeight, false);
   scene = new THREE.Scene();
   scene.fog = new THREE.FogExp2(0x0b1424, 0.006);
   camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.1, 4200);
   scene.add(camera);
-  addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight, false); });
+  addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight, false); if (composer) composer.setSize(innerWidth, innerHeight); });
+}
+
+// ------------------------------------------------- Ultra: bloom + shadows
+let composer = null, bloomPass = null;
+async function setupPost() {
+  if (!ULTRA()) return;
+  try {
+    const [{ EffectComposer }, { RenderPass }, { UnrealBloomPass }, { OutputPass }, { ShaderPass }] = await Promise.all([
+      import('./fx/postprocessing/EffectComposer.js'), import('./fx/postprocessing/RenderPass.js'),
+      import('./fx/postprocessing/UnrealBloomPass.js'), import('./fx/postprocessing/OutputPass.js'), import('./fx/postprocessing/ShaderPass.js')]);
+    const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
+    const c = new EffectComposer(renderer, rt);
+    c.setPixelRatio(renderer.getPixelRatio()); c.setSize(innerWidth, innerHeight);
+    c.addPass(new RenderPass(scene, camera));
+    // stray NaN / infinite pixels (blast flashes, additive sprites) would get blurred over the whole screen by the bloom
+    c.addPass(new ShaderPass({
+      uniforms: { tDiffuse: { value: null } },
+      vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      fragmentShader: 'uniform sampler2D tDiffuse; varying vec2 vUv; void main(){ vec4 c = texture2D(tDiffuse, vUv);' +
+        ' if (any(isnan(c)) || any(isinf(c))) c = vec4(0.0, 0.0, 0.0, 1.0); gl_FragColor = vec4(clamp(c.rgb, 0.0, 16.0), clamp(c.a, 0.0, 1.0)); }',
+    }));
+    bloomPass = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.5, 0.5, 0.85);
+    c.addPass(bloomPass); c.addPass(new OutputPass());
+    composer = c;
+  } catch (e) { console.warn('Ultra bloom unavailable', e); composer = null; }
+}
+const SUN_DIR = new THREE.Vector3(-300, 400, -200).normalize();
+function shadowTick() {
+  if (!ULTRA()) return;
+  if (frameN < 3 || (frameN % 45) === 0) scene.traverse((o) => {        // new things (players, logs, animals) start casting shadows too
+    if (o.userData.sh || !(o.isMesh)) return; o.userData.sh = 1;
+    const m = Array.isArray(o.material) ? o.material[0] : o.material;
+    if (!m || m.transparent || m.isShaderMaterial || m.isMeshBasicMaterial) return;
+    o.receiveShadow = true; o.castShadow = !o.userData.noCast;
+  });
+  // keep the shadow box centred on the player, snapped to texels so edges don't shimmer
+  const step = 170 / 4096, x = Math.round(camera.position.x / step) * step, z = Math.round(camera.position.z / step) * step, y = camera.position.y;
+  moonLight.target.position.set(x, y, z);
+  moonLight.position.set(x + SUN_DIR.x * 600, y + SUN_DIR.y * 600, z + SUN_DIR.z * 600);
+  if (bloomPass) {
+    const { dark } = skyState(localTod);
+    bloomPass.threshold = lerp(0.96, 0.6, dark) - ASHK * 0.1;
+    bloomPass.strength = lerp(0.22, 0.7, dark) + ASHK * 0.15;
+  }
 }
 
 function frostMaterial(opts) {
@@ -115,7 +164,7 @@ function canvasTex(w, h, draw, repeat) {
   draw(c.getContext('2d'), w, h);
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
   if (repeat) { t.wrapS = t.wrapT = THREE.RepeatWrapping; }
-  t.anisotropy = 4;
+  t.anisotropy = ULTRA() ? 16 : 4;
   return t;
 }
 function glowTex(inner, outer) {
@@ -169,7 +218,7 @@ function buildWorld(world) {
   sky = new THREE.Mesh(new THREE.SphereGeometry(1000, 24, 12), skyMat); sky.renderOrder = -2; scene.add(sky);
 
   const sp = [], rnd = mulberry(7);
-  for (let i = 0; i < 1600; i++) {
+  for (let i = 0; i < (ULTRA() ? 4200 : 1600); i++) {
     const u = rnd() * 2 - 1, th = rnd() * Math.PI * 2, y = Math.abs(u) * 0.95 + 0.05, r = Math.sqrt(1 - y * y);
     sp.push(Math.cos(th) * r * 900, y * 900, Math.sin(th) * r * 900);
   }
@@ -181,6 +230,11 @@ function buildWorld(world) {
 
   hemi = new THREE.HemisphereLight(0x8aa4d6, 0xe8eefa, 0.5); scene.add(hemi);
   moonLight = new THREE.DirectionalLight(0xbcd0ff, 0.4); moonLight.position.set(-300, 400, -200); scene.add(moonLight);
+  if (ULTRA()) {          // sharp soft-edged shadows that follow the player around
+    moonLight.castShadow = true; scene.add(moonLight.target);
+    const sh = moonLight.shadow; sh.mapSize.set(4096, 4096); sh.bias = -0.00025; sh.normalBias = 0.015; sh.radius = 3;
+    Object.assign(sh.camera, { left: -85, right: 85, top: 85, bottom: -85, near: 10, far: 1400 }); sh.camera.updateProjectionMatrix();
+  }
   lantern = new THREE.PointLight(0xffc98a, 3.2, 26, 1); lantern.position.set(0.25, -0.35, -0.3); camera.add(lantern);
 
   // terrain
@@ -201,7 +255,7 @@ function buildWorld(world) {
   geo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
   TERRAIN_GEO = geo; TERRAIN_COLORS = cols.slice();
   terrainMat = new THREE.MeshLambertMaterial({ vertexColors: true });
-  scene.add(new THREE.Mesh(geo, terrainMat));
+  const terrainMesh = new THREE.Mesh(geo, terrainMat); terrainMesh.userData.noCast = true; scene.add(terrainMesh);
 
   // frozen lake + dock
   iceMat = ashMat(new THREE.MeshPhongMaterial({ color: 0x9cc8e8, specular: 0xffffff, shininess: 90, transparent: true, opacity: 0.92 }), 0x66625e);
@@ -272,6 +326,26 @@ function buildTrees() {
     if (!treeCells.has(key)) treeCells.set(key, []);
     treeCells.get(key).push([x, z, birch ? 0.35 : 0.55 * s]);
   }
+  if (ULTRA()) {          // fill in the gaps: roughly twice the forest
+    const r2 = mulberry(SEED * 31 + 7);
+    for (let gx = -WORLD / 2 + 7.25; gx < WORLD / 2; gx += 6.5) for (let gz = -WORLD / 2 + 7.25; gz < WORLD / 2; gz += 6.5) {
+      const x = gx + (r2() - 0.5) * 4.5, z = gz + (r2() - 0.5) * 4.5;
+      if (Math.hypot(x, z) > 330) continue;
+      if (cabins.some((c) => Math.hypot(x - c.x, z - c.z) < 15) || Math.hypot(x - SPAWN.x, z - SPAWN.z) < 15) continue;
+      if (Math.hypot(x - LAKE.x, z - LAKE.z) < LAKE.r + 7 || FLATS.some((f) => Math.hypot(x - f.x, z - f.z) < f.r + 2)) continue;
+      const reg = regionAt(x, z), h = heightFn(x, z), n = vnoise(x * 0.03 + 11, z * 0.03);
+      let p = ({ summit: 0.28, lake: 0.36, birch: 0.5, mill: 0.42, hollow: 0.9, meadow: 0.2 }[reg] + n * 0.25) * 0.85;
+      if (h > 62) p *= 0.3;
+      if (r2() > p) continue;
+      const birch = reg === 'birch' ? r2() < 0.8 : reg === 'mill' ? r2() < 0.25 : false;
+      const t = { x, z, y: h - 0.2, s: 0.6 + r2() * 0.75 * (reg === 'hollow' ? 1.3 : 1) * (h > 55 ? 0.6 : 1), ry: r2() * 6.28 };
+      (birch ? birches : pines).push(t);
+      const key = Math.floor(x / 10) + ',' + Math.floor(z / 10);
+      if (!treeCells.has(key)) treeCells.set(key, []);
+      treeCells.get(key).push([x, z, birch ? 0.35 : 0.55 * t.s]);
+    }
+    buildBushes();
+  }
   const darkG = new THREE.Color(0x1f3a2c), midG = new THREE.Color(0x2c4a35), bark = new THREE.Color(0x4a3426);
   const pineGeo = mergeColored([
     { geo: new THREE.CylinderGeometry(0.22, 0.32, 2.2, 6).translate(0, 1.1, 0), color: bark },
@@ -294,6 +368,28 @@ function buildTrees() {
     im.instanceMatrix.needsUpdate = true; im.computeBoundingSphere(); scene.add(im);
     TREE_SETS.push({ im, list });
   }
+}
+
+let BUSH_IM = null;
+function buildBushes() {
+  // snow-dusted shrubs and dead branches scattered over the ground (Ultra only)
+  const rnd = mulberry(SEED + 2024), list = [];
+  for (let i = 0; i < 16000 && list.length < 7000; i++) {
+    const x = (rnd() - 0.5) * 640, z = (rnd() - 0.5) * 640, h = heightFn(x, z);
+    if (Math.hypot(x, z) > 315 || h > 70) continue;
+    if (cabins.some((c) => Math.hypot(x - c.x, z - c.z) < 9) || Math.hypot(x - SPAWN.x, z - SPAWN.z) < 7) continue;
+    if (Math.hypot(x - LAKE.x, z - LAKE.z) < LAKE.r + 3 || FLATS.some((f) => Math.hypot(x - f.x, z - f.z) < f.r)) continue;
+    list.push([x, h, z, 0.45 + rnd() * 0.9, rnd() * 6]);
+  }
+  const g = mergeColored([
+    { geo: new THREE.CylinderGeometry(0.06, 0.08, 0.5, 5).translate(0, 0.25, 0), color: new THREE.Color(0x4a3426) },
+    { geo: new THREE.ConeGeometry(0.75, 1.1, 7).translate(0, 0.85, 0), color: (i, x, y) => (y > 1.25 ? new THREE.Color(0xe6edf7) : new THREE.Color(0x24402f)) },
+    { geo: new THREE.ConeGeometry(0.5, 0.9, 7).translate(0, 1.45, 0), color: (i, x, y) => (y > 1.75 ? new THREE.Color(0xf0f4fa) : new THREE.Color(0x2c4a35)) },
+  ]);
+  const im = BUSH_IM = new THREE.InstancedMesh(g, frostMaterial({ vertexColors: true }), list.length);
+  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
+  list.forEach(([x, y, z, s, r], i) => { q.setFromEuler(e.set(0, r, 0)); m4.compose(new THREE.Vector3(x, y - 0.1, z), q, new THREE.Vector3(s, s, s)); im.setMatrixAt(i, m4); });
+  im.computeBoundingSphere(); scene.add(im);
 }
 
 function buildRocks() {
@@ -646,7 +742,7 @@ function buildLandmarks() {
 }
 
 function buildSnow() {
-  const n = quality === 'pi' ? 2200 : 5000;
+  const n = quality === 'pi' ? 2200 : ULTRA() ? 14000 : 5000;
   const seeds = new Float32Array(n * 4); for (let i = 0; i < n * 4; i++) seeds[i] = Math.random();
   const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3)); g.setAttribute('seed', new THREE.BufferAttribute(seeds, 4));
   const mat = new THREE.ShaderMaterial({
@@ -915,7 +1011,7 @@ function buildBomb() {
   fire.visible = ring.visible = cloud.visible = false;
   bomb = { g, warhead, trail, fire, fireMat, ring, ringMat, cloud, cloudMat, stem, cap, skirt, gy };
   // the summit camera that feeds the bunker TV
-  tvTarget = new THREE.WebGLRenderTarget(quality === 'pi' ? 256 : 384, quality === 'pi' ? 144 : 216);
+  tvTarget = new THREE.WebGLRenderTarget(quality === 'pi' ? 256 : ULTRA() ? 768 : 384, quality === 'pi' ? 144 : ULTRA() ? 432 : 216);
   tvCam = new THREE.PerspectiveCamera(62, 16 / 9, 1, 4200);
   tvCam.position.copy(MAST_TOP); tvCam.lookAt(GZ.x, gy + 120, GZ.z);
   staticTex = canvasTex(160, 90, () => {});
@@ -1541,6 +1637,7 @@ function setDevastation(on) {
   const m4 = new THREE.Matrix4();
   for (const set of TREE_SETS) { set.list.forEach((t, i) => set.im.setMatrixAt(i, treeMatrix(t, i, on, m4))); set.im.instanceMatrix.needsUpdate = true; }
   for (const c of cabins) { if (c.ruin) { c.ruin.visible = on; c.group.visible = !on; } }
+  if (BUSH_IM) BUSH_IM.visible = !on;
   if (TERRAIN_GEO) {
     const col = TERRAIN_GEO.attributes.color;
     if (on && !TERRAIN_ASH) {
@@ -1678,6 +1775,7 @@ function onWelcome(m) {
   myId = m.id; world = m.world; nightSeconds = world.nightSeconds;
   makeRenderer();
   buildWorld(world);
+  setupPost();
   me.x = SPAWN.x; me.z = SPAWN.z; me.y = groundAt(me.x, me.z);
   me.yaw = Math.atan2(-(cabins[0].x - me.x), -(cabins[0].z - me.z));
   const gb = $('galeBand'); gb.style.left = ((720 + world.galeStart) / 1440 * 100) + '%'; gb.style.width = ((world.galeEnd - world.galeStart) / 1440 * 100) + '%';
@@ -2276,7 +2374,8 @@ function frame(now) {
   audioTick(dt, clockU.value);
   sirenTick(dt);
   renderTV();
-  renderer.render(scene, camera);
+  shadowTick();
+  if (composer) composer.render(dt); else renderer.render(scene, camera);
 }
 let frameN = 0;
 
@@ -2295,7 +2394,7 @@ $('srvIn').value = qs.get('server') || store('ffc.server') || '';
 $('srvIn').addEventListener('keydown', (e) => { if (e.key === 'Enter') join(); });
 function join() {
   const name = $('nameIn').value.trim() || 'Hiker';
-  store('ffc.name', name); store('ffc.color', pickedColor); store('ffc.quality', quality);
+  store('ffc.name', name); store('ffc.color', pickedColor); store(QKEY, quality);
   $('go').disabled = true; $('joinErr').textContent = '';
   connect(name, pickedColor);
 }
@@ -2308,4 +2407,4 @@ $('volIcon').addEventListener('click', () => { if (volume > 0) { lastVol = volum
 setVolume(volume);
 
 // handy for testing / screenshots: window.ff.go(x, z, yaw, pitch)
-window.ff = { me, go(x, z, yaw = me.yaw, pitch = 0) { me.x = x; me.z = z; me.y = groundAt(x, z); me.yaw = yaw; me.pitch = pitch; }, cabins: () => cabins, send, state: () => S };
+window.ff = { me, go(x, z, yaw = me.yaw, pitch = 0) { me.x = x; me.z = z; me.y = groundAt(x, z); me.yaw = yaw; me.pitch = pitch; }, cabins: () => cabins, send, state: () => S, scene: () => scene, _comp: null, noBloom() { this._comp = composer; composer = null; }, noShadow() { moonLight.castShadow = false; renderer.shadowMap.enabled = false; scene.traverse((o) => { if (o.material) [].concat(o.material).forEach((m) => (m.needsUpdate = true)); }); }, gfx: () => ({ quality, composer: !!composer, shadows: renderer.shadowMap.enabled, casters: (() => { let n = 0; scene.traverse((o) => { if (o.castShadow) n++; }); return n; })(), pr: renderer.getPixelRatio(), calls: renderer.info.render.calls, tris: renderer.info.render.triangles, cam: camera.position.toArray().map((v) => +v.toFixed(1)), fog: [scene.fog.density, scene.fog.color.getHexString()], ashk: ASHK, hemi: hemi.intensity, sun: moonLight.intensity, exp: renderer.toneMappingExposure }) };
